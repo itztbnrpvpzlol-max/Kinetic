@@ -6,6 +6,9 @@ import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import java.nio.ByteBuffer
@@ -33,6 +36,8 @@ const val FFS = "precision mediump float;varying vec2 uv;uniform sampler2D tx;un
     "0.715-cs*0.715-sn*0.715,0.715+cs*0.285+sn*0.140,0.715-cs*0.715+sn*0.715," +
     "0.072-cs*0.072+sn*0.928,0.072-cs*0.072-sn*0.283,0.072+cs*0.928+sn*0.072);" +
     "r=hm*r;gl_FragColor=vec4(clamp(r,0.0,1.0),c.a);}"
+
+var FrameMs by mutableStateOf(0f)
 
 class Frame(val d: FloatArray, val b: Array<Bitmap?>, val fx: Array<FloatArray?>)
 
@@ -408,7 +413,9 @@ fun Viewer(comp: Comp, res: Int, zm: Float, px: Float, py: Float, m: Modifier) {
             }
         },
         update = { v ->
+            val t0 = System.nanoTime()
             r.f = comp.frame()
+            FrameMs = (System.nanoTime() - t0) / 1e6f
             r.t = comp.time
             r.ar = comp.w.toFloat() / comp.h
             r.zm = zm

@@ -21,7 +21,8 @@ data class Kf(
     val ii: Float = 1f / 3f,
     val isp: Float = 0f,
     val oi: Float = 1f / 3f,
-    val osp: Float = 0f
+    val osp: Float = 0f,
+    val sel: Boolean = false
 )
 
 private fun bz(p0: Float, p1: Float, p2: Float, p3: Float, s: Float): Float {
@@ -73,6 +74,30 @@ class Prop(val def: Float) {
     var sv by mutableStateOf(def)
     val k = mutableStateListOf<Kf>()
     val anim: Boolean get() = k.isNotEmpty()
+    var gr by mutableStateOf(true) // shown in the Graph Editor
+
+    fun hasSel(): Boolean = k.any { it.sel }
+
+    fun selNone() {
+        for (i in k.indices) if (k[i].sel) k[i] = k[i].copy(sel = false)
+    }
+
+    fun selAll() {
+        for (i in k.indices) if (!k[i].sel) k[i] = k[i].copy(sel = true)
+    }
+
+    fun setSel(i: Int, b: Boolean) {
+        if (i in k.indices && k[i].sel != b) k[i] = k[i].copy(sel = b)
+    }
+
+    fun delSel() {
+        if (!hasSel()) return
+        val first = k.first { it.sel }
+        val keep = k.filter { !it.sel }
+        if (keep.isEmpty()) sv = first.v
+        k.clear()
+        k.addAll(keep)
+    }
 
     fun get(t: Float): Float = if (k.isEmpty()) sv else ev(k, t)
 
@@ -238,6 +263,7 @@ val FXS = listOf(
 
 class Fx(val type: Int) {
     var on by mutableStateOf(true)
+    var exp by mutableStateOf(true)
     val pr = Array(FXS[type].pn.size) { Prop(FXS[type].def[it]) }
 
     fun copy(): Fx {
@@ -323,6 +349,10 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var is3d by mutableStateOf(false)
     var link by mutableStateOf(true)
     var open by mutableStateOf(false)
+    var tOpen by mutableStateOf(false)
+    var eOpen by mutableStateOf(true)
+    var animOnly by mutableStateOf(false)
+    var pick by mutableStateOf(false)
 
     init {
         pr[PX].sv = x
@@ -438,6 +468,14 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
 // Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
 const val STR = 13
 
+class PRef(val id: String, val name: String, val p: Prop)
+class KSnap(val p: Prop, val orig: List<Kf>)
+class KEntry(val id: String, val rel: Float, val kf: Kf)
+
+object KClip {
+    var items: List<KEntry> = emptyList()
+}
+
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
     var name by mutableStateOf(n)
@@ -505,7 +543,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         l.len = dur
         val at = insertAt()
         layers.add(at, l)
-        sel = at
+        pickLayer(at, false)
     }
 
     fun add() {
@@ -533,14 +571,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         l.start = st
         l.len = if (m.kind == 0 || m.dur <= 0f) room else minOf(m.dur, room)
         layers.add(0, l)
-        sel = 0
+        pickLayer(0, false)
     }
 
     fun dup(i: Int) {
         if (i in layers.indices) {
             mark()
             layers.add(i, layers[i].copy())
-            sel = i
+            pickLayer(i, false)
         }
     }
 
@@ -560,7 +598,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         mark()
         val l = layers.removeAt(i)
         layers.add(j, l)
-        sel = j
+        pickLayer(j, false)
     }
 
     fun split(i: Int) {
@@ -574,7 +612,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         n.len = e - time
         l.len = time - l.start
         layers.add(i, n)
-        sel = i
+        pickLayer(i, false)
     }
 
     fun move(l: Layer, s: Float) {
@@ -596,6 +634,186 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             var ne = t.coerceAtLeast(l.start + 0.1f).coerceAtMost(dur)
             if (fin) ne = minOf(ne, l.start + (m!!.dur - l.off))
             l.len = maxOf(ne - l.start, 0.1f)
+        }
+    }
+
+    // ---- selection (multi-select layers, keyframe selection) ----
+    fun pickLayer(i: Int, multi: Boolean) {
+        val l = layers.getOrNull(i) ?: return
+        if (multi) {
+            l.pick = !l.pick
+            if (l.pick) {
+                sel = i
+            } else if (sel == i) {
+                val j = layers.indexOfFirst { it.pick }
+                if (j >= 0) sel = j
+            }
+        } else {
+            for (q in layers) q.pick = false
+            l.pick = true
+            sel = i
+        }
+    }
+
+    fun isSel(i: Int): Boolean {
+        val l = layers.getOrNull(i) ?: return false
+        return l.pick || (i == sel && layers.none { it.pick })
+    }
+
+    fun selected(): List<Layer> {
+        val p = layers.filter { it.pick }
+        return if (p.isNotEmpty()) p else listOfNotNull(layers.getOrNull(sel))
+    }
+
+    fun selectAllLayers() {
+        for (q in layers) q.pick = true
+    }
+
+    fun delSel() {
+        val s = selected()
+        if (s.isEmpty()) return
+        mark()
+        for (l in s) for (c in layers) if (c.parent == l.uid) c.parent = l.parent
+        layers.removeAll { x -> s.any { it === x } }
+        fixParents()
+        sel = sel.coerceIn(0, maxOf(layers.size - 1, 0))
+        layers.getOrNull(sel)?.pick = true
+    }
+
+    fun dupSel() {
+        val s = selected()
+        if (s.isEmpty()) return
+        mark()
+        val idx = s.map { layers.indexOf(it) }.filter { it >= 0 }.sortedDescending()
+        for (i in idx) {
+            val o = layers[i]
+            val n = o.copy()
+            layers.add(i, n)
+            o.pick = false
+            n.pick = true
+            sel = i
+        }
+    }
+
+    fun parentSel(p: Layer?) {
+        val s = selected()
+        var did = false
+        for (l in s) if (canParent(l, p)) {
+            if (!did) mark()
+            did = true
+            l.parent = p?.uid ?: ""
+        }
+    }
+
+    fun moveBars(ls: List<Layer>, dt: Float) {
+        var lo = -Float.MAX_VALUE
+        var hi = Float.MAX_VALUE
+        for (l in ls) {
+            lo = maxOf(lo, -l.start)
+            hi = minOf(hi, dur - l.end(dur))
+        }
+        if (lo > hi) return
+        val d = dt.coerceIn(lo, hi)
+        for (l in ls) l.start += d
+    }
+
+    fun refs(l: Layer): List<PRef> {
+        val r = ArrayList<PRef>()
+        for (i in 0 until NCH) r.add(PRef("p$i", PN[i], l.pr[i]))
+        l.fx.forEachIndexed { fi, f ->
+            for (pi in f.pr.indices) r.add(PRef("f${fi}_$pi", FXS[f.type].pn[pi], f.pr[pi]))
+        }
+        return r
+    }
+
+    fun clearKeys() {
+        for (l in layers) for (r in refs(l)) r.p.selNone()
+    }
+
+    fun selectAllKeys() {
+        for (l in selected()) for (r in refs(l)) r.p.selAll()
+    }
+
+    fun nSelKeys(): Int {
+        var n = 0
+        for (l in layers) for (r in refs(l)) n += r.p.k.count { it.sel }
+        return n
+    }
+
+    fun delKeys() {
+        if (nSelKeys() == 0) return
+        mark()
+        for (l in layers) for (r in refs(l)) r.p.delSel()
+    }
+
+    fun easeKeys(m: Int) {
+        if (nSelKeys() == 0) return
+        mark()
+        for (l in layers) for (r in refs(l)) {
+            val p = r.p
+            for (i in 0 until p.k.size) if (p.k[i].sel) p.interp(i, m)
+        }
+    }
+
+    fun copyKeys(): Int {
+        val es = ArrayList<Pair<String, Kf>>()
+        for (l in layers) for (r in refs(l)) for (f in r.p.k) if (f.sel) es.add(r.id to f)
+        if (es.isEmpty()) return 0
+        val t0 = es.minOf { it.second.t }
+        KClip.items = es.map { KEntry(it.first, it.second.t - t0, it.second.copy(sel = false)) }
+        return es.size
+    }
+
+    // Pastes at the playhead onto the matching properties of the selected layers.
+    fun pasteKeys(): Int {
+        val items = KClip.items
+        val ts = selected()
+        if (items.isEmpty() || ts.isEmpty()) return 0
+        mark()
+        clearKeys()
+        val e = eps()
+        var n = 0
+        for (l in ts) {
+            val rs = refs(l)
+            for (en in items) {
+                val r = rs.firstOrNull { it.id == en.id } ?: continue
+                val t = time + en.rel
+                if (t > dur + e) continue
+                r.p.put(en.kf.copy(t = t, sel = true), e)
+                n++
+            }
+        }
+        return n
+    }
+
+    fun beginKeyMove(): List<KSnap> {
+        val r = ArrayList<KSnap>()
+        for (l in layers) for (x in refs(l)) if (x.p.hasSel()) r.add(KSnap(x.p, x.p.k.toList()))
+        return r
+    }
+
+    // Moves the selected keyframes of every snapshot by dt seconds (frame-snapped) and dv(prop) in stored units.
+    fun applyKeyMove(s: List<KSnap>, dt: Float, dv: (Prop) -> Float) {
+        val e = eps()
+        for (q in s) {
+            val moved = ArrayList<Kf>()
+            val keep = ArrayList<Kf>()
+            val d = dv(q.p)
+            for (f in q.orig) {
+                if (f.sel) {
+                    val nt = (Math.round((f.t + dt) * fps) / fps.toFloat()).coerceIn(0f, dur)
+                    moved.add(f.copy(t = nt, v = f.v + d))
+                } else {
+                    keep.add(f)
+                }
+            }
+            keep.removeAll { u -> moved.any { abs(it.t - u.t) <= e } }
+            val all = ArrayList<Kf>()
+            all.addAll(keep)
+            all.addAll(moved)
+            all.sortBy { it.t }
+            q.p.k.clear()
+            q.p.k.addAll(all)
         }
     }
 
@@ -642,7 +860,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         nl.parent = l.parent
         layers.add(i, nl)
         l.parent = nl.uid
-        sel = i + 1
+        pickLayer(i + 1, false)
     }
 
     // drop references to missing layers and break cycles (after load)

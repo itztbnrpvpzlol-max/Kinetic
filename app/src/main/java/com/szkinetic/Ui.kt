@@ -321,14 +321,18 @@ fun CompPanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
     Pn("Composition  " + comp.name, foc, c, onFoc, m) {
         Viewer(comp, Modifier.weight(1f).fillMaxWidth())
         Row(
-            Modifier.fillMaxWidth().height(24.dp).background(HD).padding(horizontal = 8.dp),
+            Modifier.fillMaxWidth().height(34.dp).background(HD).padding(horizontal = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Text("${comp.w} x ${comp.h}", color = GR, fontSize = 10.sp)
-            Text("${comp.fps} fps", color = GR, fontSize = 10.sp)
+            Ico(0, false, c) { comp.time = 0f }
+            Ico(1, false, c) { comp.time = (comp.time - 1f / comp.fps).coerceAtLeast(0f) }
+            Ico(2, comp.playing, c) { comp.playing = !comp.playing }
+            Ico(3, false, c) { comp.time = (comp.time + 1f / comp.fps).coerceAtMost(comp.dur) }
+            Ico(4, false, c) { comp.playing = false; comp.time = 0f }
+            Text("${comp.w}×${comp.h} · ${comp.fps}fps", color = GR, fontSize = 9.sp)
             Spacer(Modifier.weight(1f))
-            Tcode(comp, 12.sp)
+            Tcode(comp, 11.sp)
         }
     }
 }
@@ -592,12 +596,6 @@ fun TimePanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Ico(0, false, c) { comp.time = 0f }
-            Ico(1, false, c) { step(-1) }
-            Ico(2, comp.playing, c) { comp.playing = !comp.playing }
-            Ico(3, false, c) { step(1) }
-            Ico(4, false, c) { comp.time = d }
-            Spacer(Modifier.width(8.dp))
             Btn("Split", c) { comp.split(comp.sel) }
             Btn("Delete", c) { comp.del(comp.sel) }
             Spacer(Modifier.weight(1f))
@@ -691,7 +689,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 Unit
             }, "Close project" to { onBack() })
             Mn("Edit", c, "Preferences..." to { onSet() })
-            Mn("Composition", c, "New shape layer" to { comp.add() })
+            Mn("Composition", c, "New shape layer" to { comp.add() }, "New Null Object" to { comp.addNull() }, "New Adjustment Layer" to { comp.addAdjustment() })
             Mn("Layer", c, "Duplicate" to { comp.dup(comp.sel) }, "Split at playhead" to { comp.split(comp.sel) }, "Delete" to { comp.del(comp.sel) })
             Mn("View", c, (if (c.on) "Hide virtual cursor" else "Show virtual cursor") to { c.on = !c.on })
             Spacer(Modifier.weight(1f))

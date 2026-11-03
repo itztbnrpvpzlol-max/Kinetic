@@ -9,7 +9,7 @@ import java.io.File
 import java.util.UUID
 import kotlin.math.abs
 
-data class Kf(val t: Float, val v: Float)
+data class Kf(val t: Float, val v: Float, val mode: Int = 0)
 
 val PN = arrayOf("Position X", "Position Y", "Scale", "Rotation")
 val ST = floatArrayOf(0.05f, 0.05f, 0.1f, 15f)
@@ -26,8 +26,12 @@ fun ev(k: List<Kf>, t: Float): Float {
         val b = k[i + 1]
         if (t >= a.t && t <= b.t) {
             val u = (t - a.t) / (b.t - a.t)
-            val e = u * u * (3f - 2f * u)
-            return a.v + (b.v - a.v) * e
+            val q = when (a.mode) {
+                1 -> u * u * (3f - 2f * u) // eased
+                2 -> 0f                    // hold
+                else -> u                  // linear
+            }
+            return a.v + (b.v - a.v) * q
         }
     }
     return k.last().v
@@ -78,6 +82,9 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
     var vis by mutableStateOf(true)
     var lock by mutableStateOf(false)
     var mute by mutableStateOf(false)
+    // Parent is stored by stable layer name; empty means no parent.
+    var parentId by mutableStateOf("")
+    var adjustment by mutableStateOf(false)
 
     init {
         p[0].add(Kf(0f, x))
@@ -102,6 +109,8 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         q.vis = vis
         q.lock = lock
         q.mute = mute
+        q.parentId = parentId
+        q.adjustment = adjustment
         return q
     }
 
@@ -112,7 +121,7 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         val a = JSONArray()
         for (k in p) {
             val b = JSONArray()
-            for (f in k) b.put(JSONArray().put(f.t.toDouble()).put(f.v.toDouble()))
+            for (f in k) b.put(JSONArray().put(f.t.toDouble()).put(f.v.toDouble()).put(f.mode))
             a.put(b)
         }
         o.put("p", a)
@@ -124,6 +133,8 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         o.put("v", vis)
         o.put("lk", lock)
         o.put("mu", mute)
+            .put("pa", parentId)
+            .put("ad", adjustment)
         return o
     }
 
@@ -136,7 +147,7 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
                 val b = a.getJSONArray(i)
                 for (j in 0 until b.length()) {
                     val k = b.getJSONArray(j)
-                    l.p[i].add(Kf(k.getDouble(0).toFloat(), k.getDouble(1).toFloat()))
+                    l.p[i].add(Kf(k.getDouble(0).toFloat(), k.getDouble(1).toFloat(), k.optInt(2, 0)))
                 }
             }
             l.mid = o.optString("mi", "")
@@ -147,6 +158,8 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
             l.vis = o.optBoolean("v", true)
             l.lock = o.optBoolean("lk", false)
             l.mute = o.optBoolean("mu", false)
+            l.parentId = o.optString("pa", "")
+            l.adjustment = o.optBoolean("ad", false)
             return l
         }
     }
@@ -159,12 +172,43 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
     var playing by mutableStateOf(false)
     var sel by mutableStateOf(0)
 
-    fun seed() {
-        layers.add(Layer("Shape 1", COLS[0], -0.5f, 0f, 1f, 0f).also {
+    // Compositions are intentionally created empty. No demo content is seeded.
+
+    fun addNull() {
+        var n = 1
+        while (layers.any { it.name == "Null $n" }) n++
+        layers.add(0, Layer("Null $n", 0xFFB18CDB, 0f, 0f, 1f, 0f).also {
+            it.kind = 3
             it.len = dur
-            it.p[0].add(Kf(dur / 2, 0.5f))
-            it.p[3].add(Kf(dur / 2, 180f))
         })
+        sel = 0
+    }
+
+    fun addAdjustment() {
+        var n = 1
+        while (layers.any { it.name == "Adjustment Layer $n" }) n++
+        layers.add(0, Layer("Adjustment Layer $n", 0xFFB18CDB, 0f, 0f, 1f, 0f).also {
+            it.kind = 4
+            it.adjustment = true
+            it.len = dur
+        })
+        sel = 0
+    }
+
+    fun canParent(child: Layer, parent: Layer?): Boolean {
+        if (parent == null) return true
+        if (child === parent || parent.kind != 3) return false
+        var p: Layer? = parent
+        val seen = mutableSetOf<Layer>()
+        while (p != null) {
+            if (p === child || !seen.add(p)) return false
+            p = layers.firstOrNull { it.name == p?.parentId && it.kind == 3 }
+        }
+        return true
+    }
+
+    fun setParent(child: Layer, parent: Layer?) {
+        if (canParent(child, parent)) child.parentId = parent?.name ?: ""
     }
 
     fun add() {
@@ -242,7 +286,7 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
         var k = 0
         for (i in n - 1 downTo 0) {
             val l = layers[i]
-            if (!l.vis || l.kind == 2 || time < l.start || time > l.end(dur)) continue
+            if (!l.vis || l.kind == 2 || l.kind == 3 || l.kind == 4 || time < l.start || time > l.end(dur)) continue
             var ex = 0.3f
             var ey = 0.3f
             var bm: Bitmap? = null
@@ -351,7 +395,6 @@ class Project(
             val l = mutableListOf<Comp>()
             val a = o.getJSONArray("c")
             for (i in 0 until a.length()) l.add(Comp.fromJs(a.getJSONObject(i)))
-            if (l.isEmpty()) throw IllegalArgumentException("empty")
             val ms = mutableStateListOf<Media>()
             val b = o.optJSONArray("md")
             if (b != null) for (i in 0 until b.length()) ms.add(Media.fromJs(b.getJSONObject(i)))

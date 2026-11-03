@@ -240,7 +240,6 @@ fun NewComp(c: Cur, onClose: () -> Unit, onOk: (Comp) -> Unit) {
                 (fp.toIntOrNull() ?: 30).coerceIn(1, 120),
                 (du.toFloatOrNull() ?: 6f).coerceIn(1f, 600f)
             )
-            cm.seed()
             onOk(cm)
         }
     }) {

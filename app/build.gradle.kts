@@ -28,7 +28,6 @@ targetCompatibility=JavaVersion.VERSION_17
 }
 kotlinOptions{
 jvmTarget="17"
-freeCompilerArgs=freeCompilerArgs+listOf("-P","plugin:androidx.compose.compiler.plugins.kotlin:experimentalStrongSkippingMode=true")
 }
 }
 dependencies{

@@ -1,5 +1,8 @@
 package com.szkinetic
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -40,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 
 val PRE = listOf(
@@ -147,7 +151,7 @@ fun Home(
                     Text("Modified", color = GR, fontSize = 10.sp)
                 }
                 val rs = rememberScrollState()
-                Column(Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs)) {
+                Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs)) {
                     if (ps.isEmpty()) {
                         Text("No projects yet.", color = GR, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
                     }
@@ -196,7 +200,7 @@ fun Modal(t: String, c: Cur, foot: @Composable RowScope.() -> Unit = {}, body: @
                 Hdr(t)
                 val rs = rememberScrollState()
                 Column(
-                    Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs).padding(14.dp),
+                    Modifier.weight(1f).fillMaxWidth().vscr(c, rs).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     content = body
                 )
@@ -325,15 +329,28 @@ fun MenuView(c: Cur) {
     }
 }
 
+private val DK = darkColorScheme()
+
 @Composable
 fun Root(st: Settings, c: Cur) {
     val ctx = LocalContext.current
-    var ps by remember { mutableStateOf(Store.list(ctx)) }
+    var ps by remember { mutableStateOf<List<Project>>(emptyList()) }
     var open by remember { mutableStateOf<Project?>(null) }
     var showNew by remember { mutableStateOf(false) }
     var showSet by remember { mutableStateOf(false) }
+    var crash by remember { mutableStateOf<String?>(null) }
     var expP by remember { mutableStateOf<Project?>(null) }
     val scope = rememberCoroutineScope()
+    fun reload() {
+        scope.launch { ps = withContext(Dispatchers.IO) { Store.list(ctx) } }
+    }
+    LaunchedEffect(Unit) {
+        ps = withContext(Dispatchers.IO) { Store.list(ctx) }
+        crash = withContext(Dispatchers.IO) {
+            val f = File(ctx.filesDir, "crash.txt")
+            if (f.exists()) f.readText().take(8000) else null
+        }
+    }
     val foot = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { us: List<Uri> ->
         if (us.isNotEmpty()) scope.launch {
             val pid = UUID.randomUUID().toString()
@@ -358,37 +375,47 @@ fun Root(st: Settings, c: Cur) {
                 p.media.addAll(ms)
                 ms.forEach { cm.addMedia(it) }
                 cm.sel = 0
-                Store.save(ctx, p)
-                ps = Store.list(ctx)
                 open = p
+                Store.saveA(ctx, p)
+                reload()
             }
         }
     }
     val imp = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
-        if (u != null) {
-            val p = Store.imp(ctx, u)
+        if (u != null) scope.launch {
+            val p = withContext(Dispatchers.IO) { Store.imp(ctx, u) }
             if (p == null) {
                 Toast.makeText(ctx, "Not a Kinetic project file", Toast.LENGTH_SHORT).show()
             } else {
-                ps = Store.list(ctx)
                 open = p
+                reload()
             }
         }
     }
     val exp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u: Uri? ->
         val p = expP
         if (u != null && p != null) {
-            try {
-                ctx.contentResolver.openOutputStream(u)?.use { it.write(p.js().toString().toByteArray()) }
-            } catch (e: Exception) {
-                Toast.makeText(ctx, "Export failed", Toast.LENGTH_SHORT).show()
+            val s = p.js().toString()
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    try {
+                        ctx.contentResolver.openOutputStream(u)?.use { it.write(s.toByteArray()) }
+                        true
+                    } catch (e: Exception) {
+                        false
+                    }
+                }
+                if (!ok) Toast.makeText(ctx, "Export failed", Toast.LENGTH_SHORT).show()
             }
         }
     }
     fun close() {
-        open?.let { Store.save(ctx, it) }
+        val q = open
         open = null
-        ps = Store.list(ctx)
+        if (q != null) scope.launch {
+            Store.saveA(ctx, q)
+            reload()
+        }
     }
     BackHandler(open != null || showSet || showNew || c.menu != null) {
         when {
@@ -398,7 +425,7 @@ fun Root(st: Settings, c: Cur) {
             else -> close()
         }
     }
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    MaterialTheme(colorScheme = DK) {
         Box(Modifier.fillMaxSize().background(BG).onSizeChanged { c.sz = Size(it.width.toFloat(), it.height.toFloat()) }) {
             val o = open
             if (o == null) {
@@ -409,13 +436,17 @@ fun Root(st: Settings, c: Cur) {
                     onFoot = { foot.launch(arrayOf("video/*", "audio/*", "image/*")) },
                     onImp = { imp.launch(arrayOf("*/*")) },
                     onSet = { showSet = true },
-                    onDel = {
-                        Store.del(ctx, it)
-                        ps = Store.list(ctx)
+                    onDel = { p ->
+                        scope.launch {
+                            withContext(Dispatchers.IO) { Store.del(ctx, p) }
+                            reload()
+                        }
                     },
-                    onDup = {
-                        Store.dup(ctx, it)
-                        ps = Store.list(ctx)
+                    onDup = { p ->
+                        scope.launch {
+                            withContext(Dispatchers.IO) { Store.dup(ctx, p) }
+                            reload()
+                        }
                     },
                     onExp = {
                         expP = it
@@ -428,11 +459,23 @@ fun Root(st: Settings, c: Cur) {
             if (showNew) NewComp(c, { showNew = false }) { cm ->
                 showNew = false
                 val p = Project.create(cm)
-                Store.save(ctx, p)
-                ps = Store.list(ctx)
                 open = p
+                scope.launch {
+                    Store.saveA(ctx, p)
+                    reload()
+                }
             }
             if (showSet) Prefs(st, c) { showSet = false }
+            val cr = crash
+            if (cr != null) Modal("Last crash", c, foot = {
+                Btn("Copy", c) {
+                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("crash", cr))
+                }
+                Btn("Dismiss", c, true) {
+                    File(ctx.filesDir, "crash.txt").delete()
+                    crash = null
+                }
+            }) { Text(cr, color = GR, fontSize = 9.sp) }
             MenuView(c)
             if (c.on) CursorLayer(c)
         }
@@ -448,5 +491,6 @@ fun App(st: Settings, c: Cur) {
         1 -> (cfg.screenWidthDp / 900f).coerceIn(0.7f, 1.8f)
         else -> st.scale
     }
-    CompositionLocalProvider(LocalDensity provides Density(d.density * m, d.fontScale)) { Root(st, c) }
+    val dn = remember(d.density, d.fontScale, m) { Density(d.density * m, d.fontScale) }
+    CompositionLocalProvider(LocalDensity provides dn) { Root(st, c) }
 }

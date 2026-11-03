@@ -1,0 +1,2 @@
+-dontwarn **
+-keepattributes SourceFile,LineNumberTable

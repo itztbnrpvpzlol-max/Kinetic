@@ -20,16 +20,35 @@ class Frame(val d: FloatArray, val b: Array<Bitmap?>)
 
 fun sh(t: Int, s: String): Int {
     val i = GLES20.glCreateShader(t)
+    if (i == 0) return 0
     GLES20.glShaderSource(i, s)
     GLES20.glCompileShader(i)
+    val st = IntArray(1)
+    GLES20.glGetShaderiv(i, GLES20.GL_COMPILE_STATUS, st, 0)
+    if (st[0] == 0) {
+        GLES20.glDeleteShader(i)
+        return 0
+    }
     return i
 }
 
 fun prog(): Int {
+    val v = sh(GLES20.GL_VERTEX_SHADER, VS)
+    val f = sh(GLES20.GL_FRAGMENT_SHADER, FS)
+    if (v == 0 || f == 0) return 0
     val p = GLES20.glCreateProgram()
-    GLES20.glAttachShader(p, sh(GLES20.GL_VERTEX_SHADER, VS))
-    GLES20.glAttachShader(p, sh(GLES20.GL_FRAGMENT_SHADER, FS))
+    if (p == 0) return 0
+    GLES20.glAttachShader(p, v)
+    GLES20.glAttachShader(p, f)
     GLES20.glLinkProgram(p)
+    GLES20.glDeleteShader(v)
+    GLES20.glDeleteShader(f)
+    val st = IntArray(1)
+    GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, st, 0)
+    if (st[0] == 0) {
+        GLES20.glDeleteProgram(p)
+        return 0
+    }
     return p
 }
 
@@ -49,19 +68,47 @@ class Rnd : GLSurfaceView.Renderer {
     @Volatile var f = Frame(FloatArray(0), arrayOfNulls<Bitmap>(0))
     @Volatile var t = 0f
     @Volatile var ar = 16f / 9f
-    var pg = 0
-    var W = 0
-    var H = 0
-    var tx = HashMap<Bitmap, Int>()
-    val vb = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+    private var pg = 0
+    private var W = 0
+    private var H = 0
+    private var tx = LinkedHashMap<Bitmap, Int>(16, 0.75f, true)
+    private val ds = IntArray(1)
+    private var lp = 0
+    private var uo = 0
+    private var ue = 0
+    private var us = 0
+    private var ur = 0
+    private var ua = 0
+    private var uc = 0
+    private var ut = 0
+    private var uu = 0
+    private var ux = 0
+    private val vb = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
         put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
         position(0)
     }
 
     override fun onSurfaceCreated(g: GL10?, c: EGLConfig?) {
         pg = prog()
-        tx = HashMap()
+        tx = LinkedHashMap(16, 0.75f, true)
         GLES20.glEnable(GLES20.GL_BLEND)
+        GLES20.glDisable(GLES20.GL_DITHER)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        if (pg != 0) {
+            lp = GLES20.glGetAttribLocation(pg, "p")
+            uo = GLES20.glGetUniformLocation(pg, "o")
+            ue = GLES20.glGetUniformLocation(pg, "e")
+            us = GLES20.glGetUniformLocation(pg, "s")
+            ur = GLES20.glGetUniformLocation(pg, "r")
+            ua = GLES20.glGetUniformLocation(pg, "a")
+            uc = GLES20.glGetUniformLocation(pg, "col")
+            ut = GLES20.glGetUniformLocation(pg, "tm")
+            uu = GLES20.glGetUniformLocation(pg, "u")
+            ux = GLES20.glGetUniformLocation(pg, "tx")
+            GLES20.glUseProgram(pg)
+            GLES20.glUniform1i(ux, 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        }
     }
 
     override fun onSurfaceChanged(g: GL10?, w: Int, h: Int) {
@@ -74,12 +121,13 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glViewport(0, 0, W, H)
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        if (W == 0 || H == 0) return
+        if (W == 0 || H == 0 || pg == 0) return
+        val a = ar
         var vw = W
-        var vh = (W / ar).toInt()
+        var vh = (W / a).toInt()
         if (vh > H) {
             vh = H
-            vw = (H * ar).toInt()
+            vw = (H * a).toInt()
         }
         val x = (W - vw) / 2
         val y = (H - vh) / 2
@@ -88,25 +136,17 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glScissor(x, y, vw, vh)
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        GLES20.glUseProgram(pg)
-        val pl = GLES20.glGetAttribLocation(pg, "p")
-        GLES20.glEnableVertexAttribArray(pl)
-        GLES20.glVertexAttribPointer(pl, 2, GLES20.GL_FLOAT, false, 8, vb)
-        val uo = GLES20.glGetUniformLocation(pg, "o")
-        val ue = GLES20.glGetUniformLocation(pg, "e")
-        val us = GLES20.glGetUniformLocation(pg, "s")
-        val ur = GLES20.glGetUniformLocation(pg, "r")
-        val ua = GLES20.glGetUniformLocation(pg, "a")
-        val uc = GLES20.glGetUniformLocation(pg, "col")
-        val ut = GLES20.glGetUniformLocation(pg, "tm")
-        val uu = GLES20.glGetUniformLocation(pg, "u")
-        val ux = GLES20.glGetUniformLocation(pg, "tx")
-        GLES20.glUniform1f(ua, ar)
-        GLES20.glUniform1f(ut, t)
         val fr = f
         val d = fr.d
-        val nt = HashMap<Bitmap, Int>()
-        for (i in 0 until d.size / 10) {
+        val n = d.size / 10
+        if (n == 0) return
+        GLES20.glUseProgram(pg)
+        GLES20.glEnableVertexAttribArray(lp)
+        GLES20.glVertexAttribPointer(lp, 2, GLES20.GL_FLOAT, false, 8, vb)
+        GLES20.glUniform1f(ua, a)
+        GLES20.glUniform1f(ut, t)
+        var cur = 0
+        for (i in 0 until n) {
             val o = i * 10
             val bm = fr.b[i]
             GLES20.glUniform2f(uo, d[o], d[o + 1])
@@ -114,23 +154,36 @@ class Rnd : GLSurfaceView.Renderer {
             GLES20.glUniform1f(ur, d[o + 3])
             GLES20.glUniform4f(uc, d[o + 4], d[o + 5], d[o + 6], d[o + 7])
             GLES20.glUniform2f(ue, d[o + 8], d[o + 9])
-            if (bm != null) {
-                var id = nt[bm] ?: tx[bm]
-                if (id == null) id = up(bm)
-                nt[bm] = id
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            if (bm != null && !bm.isRecycled) {
+                var id = tx[bm]
+                if (id == null) {
+                    id = up(bm)
+                    tx[bm] = id
+                }
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
-                GLES20.glUniform1i(ux, 0)
-                GLES20.glUniform1f(uu, 1f)
-                GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                if (cur != 1) {
+                    GLES20.glUniform1f(uu, 1f)
+                    GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                    cur = 1
+                }
             } else {
-                GLES20.glUniform1f(uu, 0f)
-                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                if (cur != 2) {
+                    GLES20.glUniform1f(uu, 0f)
+                    GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                    cur = 2
+                }
             }
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
-        for ((k, v) in tx) if (!nt.containsKey(k)) GLES20.glDeleteTextures(1, intArrayOf(v), 0)
-        tx = nt
+        if (tx.size > 8) {
+            val ei = tx.entries.iterator()
+            while (tx.size > 8 && ei.hasNext()) {
+                val e = ei.next()
+                ds[0] = e.value
+                GLES20.glDeleteTextures(1, ds, 0)
+                ei.remove()
+            }
+        }
     }
 }
 

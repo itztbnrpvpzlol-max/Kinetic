@@ -30,12 +30,17 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,7 +112,7 @@ fun Sld(v: Float, lo: Float, hi: Float, c: Cur, wd: Dp = 160.dp, f: (Float) -> U
     var w by remember { mutableStateOf(1f) }
     val set = { o: Offset -> f(lo + (o.x / w).coerceIn(0f, 1f) * (hi - lo)) }
     val fr = ((v - lo) / (hi - lo)).coerceIn(0f, 1f)
-    Box(Modifier.width(wd).height(22.dp).onSizeChanged { w = it.width.toFloat() }.cur(c, set, null, null, null, set)) {
+    Box(Modifier.width(wd).height(22.dp).onSizeChanged { w = it.width.toFloat() }.cur(c, drag = set, ds = set, click = set)) {
         Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(4.dp).background(P3))
         Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(fr).height(4.dp).background(AC))
         Box(Modifier.align(Alignment.CenterStart).offset { IntOffset((fr * (w - 12.dp.roundToPx())).toInt(), 0) }.size(12.dp).background(Color.White, CircleShape))
@@ -285,7 +293,7 @@ fun ProjPanel(p: Project, comp: Comp, c: Cur, sel: String, onSel: (String) -> Un
             Text("Dur", color = GR, fontSize = 10.sp, modifier = Modifier.width(34.dp))
         }
         val rs = rememberScrollState()
-        Column(Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs)) {
+        Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs)) {
             PRow(0xFFB0B0B0, comp.name, "Comp", dl(comp.dur), sel == "", c, null) { onSel("") }
             p.media.forEach { m ->
                 PRow(
@@ -320,9 +328,14 @@ fun CompPanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
             Text("${comp.w} x ${comp.h}", color = GR, fontSize = 10.sp)
             Text("${comp.fps} fps", color = GR, fontSize = 10.sp)
             Spacer(Modifier.weight(1f))
-            Text(tc(comp.time, comp.fps), color = AC, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Tcode(comp, 12.sp)
         }
     }
+}
+
+@Composable
+fun PVal(l: Layer, i: Int, comp: Comp) {
+    Text("%.2f".format(ev(l.p[i], comp.time)), color = Color.White, fontSize = 11.sp, modifier = Modifier.width(38.dp))
 }
 
 @Composable
@@ -341,7 +354,7 @@ fun RightPanel(comp: Comp, c: Cur, tab: Int, onTab: (Int) -> Unit, foc: Boolean,
         }
         val rs = rememberScrollState()
         Column(
-            Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs).padding(8.dp),
+            Modifier.weight(1f).fillMaxWidth().vscr(c, rs).padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             val l = comp.layers.getOrNull(comp.sel)
@@ -367,7 +380,7 @@ fun RightPanel(comp: Comp, c: Cur, tab: Int, onTab: (Int) -> Unit, foc: Boolean,
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(n, color = Color.LightGray, fontSize = 11.sp, modifier = Modifier.weight(1f))
                         Btn("-", c) { bump(l.p[i], comp.time, -ST[i]) }
-                        Text("%.2f".format(ev(l.p[i], comp.time)), color = Color.White, fontSize = 11.sp, modifier = Modifier.width(38.dp))
+                        PVal(l, i, comp)
                         Btn("+", c) { bump(l.p[i], comp.time, ST[i]) }
                     }
                 }
@@ -381,12 +394,37 @@ fun lab(t: Float): String {
     return if (t == s.toFloat()) (if (s >= 60) "%d:%02d".format(s / 60, s % 60) else "${s}s") else "%.1fs".format(t)
 }
 
+private val RS = TextStyle(color = GR, fontSize = 9.sp)
+private val LS = TextStyle(color = Color(0xFF101010), fontSize = 10.sp)
+private val STP = floatArrayOf(0.1f, 0.25f, 0.5f, 1f, 2f, 5f, 10f, 15f, 30f, 60f, 120f, 300f, 600f)
+
+class Lt(private val tm: TextMeasurer) {
+    private val m = HashMap<String, TextLayoutResult>()
+
+    fun get(k: String, t: String, s: TextStyle): TextLayoutResult {
+        var r = m[k]
+        if (r == null) {
+            if (m.size > 256) m.clear()
+            r = tm.measure(AnnotatedString(t), s)
+            m[k] = r
+        }
+        return r
+    }
+}
+
+@Composable
+fun Tcode(comp: Comp, sz: TextUnit) {
+    val f by remember(comp) { derivedStateOf { (comp.time * comp.fps).toInt() } }
+    Text(tf(f, comp.fps), color = AC, fontSize = sz, fontWeight = FontWeight.Bold)
+}
+
 @Composable
 fun TimePanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) {
     var w by remember { mutableStateOf(1f) }
     var zoom by remember { mutableStateOf(1f) }
     var vs by remember { mutableStateOf(0f) }
     val tm = rememberTextMeasurer()
+    val lt = remember(tm) { Lt(tm) }
     val d = comp.dur
     val pps = w * zoom / d
     val vsc = vs.coerceIn(0f, maxOf(d - d / zoom, 0f))
@@ -406,10 +444,10 @@ fun TimePanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
         Row(Modifier.fillMaxWidth().weight(1f)) {
             Column(Modifier.width(236.dp).fillMaxHeight()) {
                 Column(Modifier.fillMaxWidth().height(46.dp).background(HD).padding(horizontal = 8.dp), verticalArrangement = Arrangement.Center) {
-                    Text(tc(comp.time, comp.fps), color = AC, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Tcode(comp, 15.sp)
                     Text(comp.fps.toString() + " fps", color = GR, fontSize = 9.sp)
                 }
-                Column(Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs)) {
+                Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs)) {
                     comp.layers.forEachIndexed { i, l ->
                         Row(
                             Modifier.fillMaxWidth().height(26.dp)
@@ -435,26 +473,39 @@ fun TimePanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
                     Canvas(Modifier.fillMaxWidth().height(46.dp).background(HD).cur(c, { seek(it.x) }) { seek(it.x) }) {
                         val x0 = xp(0f)
                         val x1 = xp(d)
+                        val y0 = 22.dp.toPx()
+                        val y1 = size.height - 3.dp.toPx()
+                        val ym = 34.dp.toPx()
+                        val ty = 11.dp.toPx()
                         drawRect(Color(0xFF5A5A5A), Offset(x0, 2.dp.toPx()), Size(x1 - x0, 5.dp.toPx()))
-                        drawRect(Color(0xFF3BA55D), Offset(x0, size.height - 3.dp.toPx()), Size(x1 - x0, 3.dp.toPx()))
-                        val cand = floatArrayOf(0.1f, 0.25f, 0.5f, 1f, 2f, 5f, 10f, 15f, 30f, 60f, 120f, 300f, 600f)
-                        val stp = cand.firstOrNull { it * pps >= 64f } ?: 600f
+                        drawRect(Color(0xFF3BA55D), Offset(x0, y1), Size(x1 - x0, 3.dp.toPx()))
+                        var stp = 600f
+                        for (q in STP) {
+                            if (q * pps >= 64f) {
+                                stp = q
+                                break
+                            }
+                        }
                         val i0 = floor(vsc / stp).toInt()
                         val i1 = ceil((vsc + size.width / pps) / stp).toInt()
                         for (k in i0..minOf(i1, i0 + 400)) {
                             val t = k * stp
                             if (t < 0f || t > d + 0.001f) continue
                             val x = xp(t)
-                            drawLine(Color(0xFF8A8A8A), Offset(x, 22.dp.toPx()), Offset(x, size.height - 3.dp.toPx()), 1.5f)
-                            drawText(tm, lab(t), Offset(x + 3f, 11.dp.toPx()), TextStyle(color = GR, fontSize = 9.sp))
+                            drawLine(Color(0xFF8A8A8A), Offset(x, y0), Offset(x, y1), 1.5f)
+                            val lb = lab(t)
+                            drawText(lt.get("r$lb", lb, RS), topLeft = Offset(x + 3f, ty))
                             for (j in 1..3) {
                                 val mt = t + stp * j / 4f
-                                if (mt <= d) drawLine(Color(0xFF5E5E5E), Offset(xp(mt), 34.dp.toPx()), Offset(xp(mt), size.height - 3.dp.toPx()), 1f)
+                                if (mt <= d) {
+                                    val mx = xp(mt)
+                                    drawLine(Color(0xFF5E5E5E), Offset(mx, ym), Offset(mx, y1), 1f)
+                                }
                             }
                         }
                     }
-                    Column(Modifier.weight(1f).fillMaxWidth().scr(c) { dy ->
-                        if (zoom > 1.05f) vs = (vsc - dy / pps).coerceIn(0f, maxOf(d - d / zoom, 0f)) else rs.dispatchRawDelta(-dy)
+                    Column(Modifier.weight(1f).fillMaxWidth().scr(c) { o ->
+                        if (zoom > 1.05f && abs(o.x) > abs(o.y)) vs = (vsc - o.x / pps).coerceIn(0f, maxOf(d - d / zoom, 0f)) else rs.dispatchRawDelta(-o.y)
                     }.verticalScroll(rs)) {
                         comp.layers.forEachIndexed { i, l ->
                             val gs = remember(l) { floatArrayOf(-1f, 0f) }
@@ -486,24 +537,36 @@ fun TimePanel(comp: Comp, c: Cur, foc: Boolean, onFoc: () -> Unit, m: Modifier) 
                                             }
                                         },
                                         rc = mnu(c, "Duplicate" to { comp.dup(i) }, "Split at playhead" to { comp.split(i) }, "Delete" to { comp.del(i) }),
-                                        ds = grab
+                                        ds = grab,
+                                        gate = { gs[0] >= 0f }
                                     ) { o -> grab(o) }
                             ) {
                                 val a = xp(l.start)
                                 val b = xp(l.end(d))
-                                val tp = Offset(a, 3.dp.toPx())
-                                val sz = Size(maxOf(b - a, 2f), size.height - 6.dp.toPx())
-                                drawRoundRect(Color(l.col).copy(alpha = if (l.lock) 0.45f else 0.85f), tp, sz, CornerRadius(3.dp.toPx()))
-                                if (i == comp.sel) drawRoundRect(Color.White, tp, sz, CornerRadius(3.dp.toPx()), Stroke(1.5f))
-                                if (sz.width > 48f) drawText(
-                                    tm, l.name, Offset(a + 6f, 6.dp.toPx()), TextStyle(color = Color(0xFF101010), fontSize = 10.sp),
-                                    overflow = TextOverflow.Ellipsis, softWrap = false, maxLines = 1, size = Size(sz.width - 12f, 14.dp.toPx())
-                                )
-                                val ts = l.p.flatMap { k -> k.map { it.t } }.distinct()
-                                ts.forEach { t ->
-                                    val x = xp(t)
-                                    val y = size.height / 2
-                                    if (t > 0f) rotate(45f, Offset(x, y)) { drawRect(Color(0xFFE2C84A), Offset(x - 4f, y - 4f), Size(8f, 8f)) }
+                                val ca = maxOf(a, -8f)
+                                val cb = minOf(b, size.width + 8f)
+                                if (cb > ca) {
+                                    val tp = Offset(ca, 3.dp.toPx())
+                                    val sz = Size(maxOf(cb - ca, 2f), size.height - 6.dp.toPx())
+                                    drawRoundRect(Color(l.col).copy(alpha = if (l.lock) 0.45f else 0.85f), tp, sz, CornerRadius(3.dp.toPx()))
+                                    if (i == comp.sel) drawRoundRect(Color.White, tp, sz, CornerRadius(3.dp.toPx()), Stroke(1.5f))
+                                    val l0 = maxOf(a, 0f) + 6f
+                                    val r0 = minOf(b, size.width) - 6f
+                                    if (r0 - l0 > 24f) {
+                                        val tl = lt.get("l" + l.name, l.name, LS)
+                                        clipRect(l0, 0f, r0, size.height) { drawText(tl, topLeft = Offset(l0, 6.dp.toPx())) }
+                                    }
+                                }
+                                val y = size.height / 2
+                                for (pi in 0 until 4) {
+                                    val kk = l.p[pi]
+                                    for (j in 0 until kk.size) {
+                                        val t = kk[j].t
+                                        if (t > 0f) {
+                                            val x = xp(t)
+                                            if (x >= -8f && x <= size.width + 8f) rotate(45f, Offset(x, y)) { drawRect(Color(0xFFE2C84A), Offset(x - 4f, y - 4f), Size(8f, 8f)) }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -571,15 +634,23 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     n++
                 }
             }
-            Store.save(ctx, p)
+            Store.saveA(ctx, p)
             Toast.makeText(ctx, "Imported $n of ${us.size}", Toast.LENGTH_SHORT).show()
         }
     }
     val doImp = { imp.launch(arrayOf("video/*", "audio/*", "image/*")) }
+    val lo = LocalLifecycleOwner.current
     LaunchedEffect(p) {
+        var last = p.js().toString()
         while (true) {
             delay(4000)
-            Store.save(ctx, p)
+            val s = p.js().toString()
+            if (s != last) {
+                p.mod = System.currentTimeMillis()
+                val t = p.js().toString()
+                last = t
+                withContext(Dispatchers.IO) { Store.put(ctx, p.id, t) }
+            }
         }
     }
     LaunchedEffect(comp.playing) {
@@ -592,7 +663,22 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
         }
         Aud.sync(comp, false)
     }
-    DisposableEffect(p) { onDispose { Aud.stop() } }
+    DisposableEffect(lo, comp) {
+        val ob = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_PAUSE) {
+                comp.playing = false
+                Aud.stop()
+            }
+        }
+        lo.lifecycle.addObserver(ob)
+        onDispose { lo.lifecycle.removeObserver(ob) }
+    }
+    DisposableEffect(p) {
+        onDispose {
+            Aud.stop()
+            Frames.clear()
+        }
+    }
     Column(Modifier.fillMaxSize().background(BG)) {
         Row(Modifier.fillMaxWidth().height(28.dp).background(Color(0xFF1F1F1F)), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(8.dp))
@@ -600,7 +686,10 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 Text("Ki", color = Color(0xFF1A1A1A), fontWeight = FontWeight.Bold, fontSize = 9.sp)
             }
             Spacer(Modifier.width(4.dp))
-            Mn("File", c, "Import media..." to { doImp() }, "Save project" to { Store.save(ctx, p) }, "Close project" to { onBack() })
+            Mn("File", c, "Import media..." to { doImp() }, "Save project" to {
+                scope.launch { Store.saveA(ctx, p) }
+                Unit
+            }, "Close project" to { onBack() })
             Mn("Edit", c, "Preferences..." to { onSet() })
             Mn("Composition", c, "New shape layer" to { comp.add() })
             Mn("Layer", c, "Duplicate" to { comp.dup(comp.sel) }, "Split at playhead" to { comp.split(comp.sel) }, "Delete" to { comp.del(comp.sel) })

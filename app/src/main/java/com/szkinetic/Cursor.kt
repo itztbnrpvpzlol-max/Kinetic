@@ -1,6 +1,7 @@
 package com.szkinetic
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -9,6 +10,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.boundsInRoot
@@ -37,10 +40,11 @@ class Hit(
     var click: (Offset) -> Unit,
     var drag: ((Offset) -> Unit)?,
     var rc: ((Offset) -> Unit)?,
-    var sc: ((Float) -> Unit)?,
+    var sc: ((Offset) -> Unit)?,
     val z: Int
 ) {
     var ds: ((Offset) -> Unit)? = null
+    var gate: (() -> Boolean)? = null
 }
 
 class Cur(val st: Settings) {
@@ -55,28 +59,69 @@ class Cur(val st: Settings) {
     var lock by mutableStateOf(false)
     var menu by mutableStateOf<Menu?>(null)
     var sz = Size.Zero
-    val hits = mutableListOf<Hit>()
+    val hits = ArrayList<Hit>()
     var grab: Hit? = null
+    var sg: Hit? = null
+    private var dc: Hit? = null
+    private var dp = Offset.Zero
+    private var mv = 0f
 
-    fun at(): Hit? {
-        val a = hits.filter { it.r.contains(pos) }
-        val m = a.maxOfOrNull { it.z } ?: return null
-        return a.filter { it.z == m }.minByOrNull { it.r.width * it.r.height }
+    private fun top(p: Offset): Int {
+        var m = -1
+        for (i in hits.indices) {
+            val h = hits[i]
+            if (h.z > m && h.r.contains(p)) m = h.z
+        }
+        return m
     }
 
+    private fun pick(p: Offset, sc: Boolean): Hit? {
+        val m = top(p)
+        if (m < 0) return null
+        var b: Hit? = null
+        var ba = Float.MAX_VALUE
+        for (i in hits.indices) {
+            val h = hits[i]
+            if (h.z != m || !h.r.contains(p) || (sc && h.sc == null)) continue
+            val a = h.r.width * h.r.height
+            if (a < ba) {
+                ba = a
+                b = h
+            }
+        }
+        return b
+    }
+
+    fun at(): Hit? = pick(pos, false)
+
     fun press(b: Int) {
-        val h = at()
         if (b == 0) {
-            if (h != null) h.click(pos - h.r.topLeft)
-            grab = h
+            val h = at()
+            sg = pick(pos, true)
+            dc = null
+            mv = 0f
+            if (h != null && h.drag == null && h.sc == null && sg != null) {
+                dc = h
+                dp = pos - h.r.topLeft
+                grab = null
+            } else {
+                if (h != null) h.click(pos - h.r.topLeft)
+                grab = if (h != null && h.drag != null && (h.gate?.invoke() ?: true)) h else null
+            }
         } else {
             menu = null
-            h?.rc?.invoke(pos)
+            at()?.rc?.invoke(pos)
         }
     }
 
     fun release(b: Int) {
-        if (b == 0) grab = null
+        if (b == 0) {
+            val d = dc
+            if (d != null && mv < 12f) d.click(dp)
+            dc = null
+            grab = null
+            sg = null
+        }
     }
 
     fun tap() {
@@ -86,14 +131,16 @@ class Cur(val st: Settings) {
 
     fun move(d: Offset) {
         val f = if (slow) st.speed * 0.2f else st.speed
-        pos = Offset((pos.x + d.x * f).coerceIn(0f, sz.width), (pos.y + d.y * f).coerceIn(0f, sz.height))
-        grab?.let { g -> g.drag?.invoke(pos - g.r.topLeft) }
+        val o = pos
+        val n = Offset((o.x + d.x * f).coerceIn(0f, sz.width), (o.y + d.y * f).coerceIn(0f, sz.height))
+        pos = n
+        if (dc != null) mv += (n - o).getDistance()
+        val g = grab
+        if (g != null) g.drag?.invoke(n - g.r.topLeft) else sg?.sc?.invoke(n - o)
     }
 
-    fun scroll(dy: Float) {
-        val a = hits.filter { it.sc != null && it.r.contains(pos) }
-        val m = a.maxOfOrNull { it.z } ?: return
-        a.filter { it.z == m }.minByOrNull { it.r.width * it.r.height }?.sc?.invoke(dy)
+    fun scroll(d: Offset) {
+        pick(pos, true)?.sc?.invoke(d)
     }
 }
 
@@ -103,8 +150,9 @@ fun Modifier.cur(
     c: Cur,
     drag: ((Offset) -> Unit)? = null,
     rc: ((Offset) -> Unit)? = null,
-    sc: ((Float) -> Unit)? = null,
+    sc: ((Offset) -> Unit)? = null,
     ds: ((Offset) -> Unit)? = null,
+    gate: (() -> Boolean)? = null,
     click: (Offset) -> Unit = {}
 ): Modifier = composed {
     val z = LocalZ.current
@@ -114,23 +162,25 @@ fun Modifier.cur(
     h.rc = rc
     h.sc = sc
     h.ds = ds
+    h.gate = gate
     DisposableEffect(h) {
         c.hits.add(h)
         onDispose { c.hits.remove(h) }
     }
+    val on = c.on
     this.onGloballyPositioned { h.r = it.boundsInRoot() }
-        .pointerInput(Unit) {
-            detectTapGestures(onLongPress = { h.rc?.invoke(h.r.topLeft + it) }, onTap = { h.click(it) })
+        .pointerInput(on) {
+            if (!on) detectTapGestures(onLongPress = { h.rc?.invoke(h.r.topLeft + it) }, onTap = { h.click(it) })
         }
-        .pointerInput(Unit) {
-            if (h.drag != null) detectDragGestures(onDragStart = { h.ds?.invoke(it) }) { ch, _ ->
+        .pointerInput(on) {
+            if (!on && h.drag != null) detectDragGestures(onDragStart = { h.ds?.invoke(it) }) { ch, _ ->
                 ch.consume()
                 h.drag?.invoke(ch.position)
             }
         }
 }
 
-fun Modifier.scr(c: Cur, f: (Float) -> Unit): Modifier = composed {
+fun Modifier.scr(c: Cur, f: (Offset) -> Unit): Modifier = composed {
     val z = LocalZ.current
     val h = remember { Hit(Rect.Zero, {}, null, null, f, z) }
     h.sc = f
@@ -141,6 +191,8 @@ fun Modifier.scr(c: Cur, f: (Float) -> Unit): Modifier = composed {
     this.onGloballyPositioned { h.r = it.boundsInRoot() }
 }
 
+fun Modifier.vscr(c: Cur, rs: ScrollState): Modifier = scr(c) { rs.dispatchRawDelta(-it.y) }.verticalScroll(rs)
+
 @Composable
 fun Chip(t: String, a: Boolean, f: () -> Unit) {
     Box(Modifier.background(if (a) AC else P3, RoundedCornerShape(16.dp)).clickable { f() }.padding(horizontal = 14.dp, vertical = 8.dp)) {
@@ -148,19 +200,33 @@ fun Chip(t: String, a: Boolean, f: () -> Unit) {
     }
 }
 
-fun DrawScope.arrow(p: Offset, k: Float) {
+private var apK = -1f
+private var apP: Path? = null
+
+private fun arrowPath(k: Float): Path {
+    val q = apP
+    if (q != null && apK == k) return q
     val a = Path().apply {
-        moveTo(p.x, p.y)
-        lineTo(p.x, p.y + 34f * k)
-        lineTo(p.x + 9f * k, p.y + 26f * k)
-        lineTo(p.x + 15f * k, p.y + 40f * k)
-        lineTo(p.x + 21f * k, p.y + 37f * k)
-        lineTo(p.x + 15f * k, p.y + 24f * k)
-        lineTo(p.x + 26f * k, p.y + 24f * k)
+        moveTo(0f, 0f)
+        lineTo(0f, 34f * k)
+        lineTo(9f * k, 26f * k)
+        lineTo(15f * k, 40f * k)
+        lineTo(21f * k, 37f * k)
+        lineTo(15f * k, 24f * k)
+        lineTo(26f * k, 24f * k)
         close()
     }
-    drawPath(a, Color.White)
-    drawPath(a, Color.Black, style = Stroke(maxOf(2f * k, 1.5f)))
+    apP = a
+    apK = k
+    return a
+}
+
+fun DrawScope.arrow(p: Offset, k: Float) {
+    val a = arrowPath(k)
+    translate(p.x, p.y) {
+        drawPath(a, Color.White)
+        drawPath(a, Color.Black, style = Stroke(maxOf(2f * k, 1.5f)))
+    }
 }
 
 @Composable
@@ -176,13 +242,20 @@ fun CursorLayer(c: Cur) {
                     val ch = e.changes
                     if (ch.size > 1) {
                         multi = true
-                        c.scroll(ch.map { it.positionChange().y }.average().toFloat())
+                        var sx = 0f
+                        var sy = 0f
+                        for (i in ch.indices) {
+                            val p = ch[i].positionChange()
+                            sx += p.x
+                            sy += p.y
+                        }
+                        c.scroll(Offset(sx / ch.size, sy / ch.size))
                     } else if (!multi) {
                         val d = ch[0].positionChange()
                         tot += d.getDistance()
                         if (tot > 8f && d != Offset.Zero) c.move(d)
                     }
-                    ch.forEach { it.consume() }
+                    for (i in ch.indices) ch[i].consume()
                 } while (ch.any { it.pressed })
                 if (!multi && tot < 12f) c.tap()
             }

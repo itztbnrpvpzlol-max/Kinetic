@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class Settings(c: Context) {
     private val sp = c.getSharedPreferences("kinetic", Context.MODE_PRIVATE)
@@ -45,7 +47,7 @@ object Store {
     }
 
     fun list(c: Context): List<Project> =
-        (dir(c).listFiles() ?: emptyArray<File>()).mapNotNull {
+        (dir(c).listFiles() ?: emptyArray<File>()).filter { it.name.endsWith(".kin") }.mapNotNull {
             try {
                 Project.fromJs(JSONObject(it.readText())).also { p -> fix(c, p) }
             } catch (e: Exception) {
@@ -53,9 +55,29 @@ object Store {
             }
         }.sortedByDescending { it.mod }
 
+    fun put(c: Context, id: String, s: String) {
+        try {
+            val d = dir(c)
+            val f = File(d, "$id.kin")
+            val t = File(d, "$id.tmp")
+            t.writeText(s)
+            if (!t.renameTo(f)) {
+                f.writeText(s)
+                t.delete()
+            }
+        } catch (e: Exception) {
+        }
+    }
+
     fun save(c: Context, p: Project) {
         p.mod = System.currentTimeMillis()
-        File(dir(c), p.id + ".kin").writeText(p.js().toString())
+        put(c, p.id, p.js().toString())
+    }
+
+    suspend fun saveA(c: Context, p: Project) {
+        p.mod = System.currentTimeMillis()
+        val s = p.js().toString()
+        withContext(Dispatchers.IO) { put(c, p.id, s) }
     }
 
     fun del(c: Context, p: Project) {
@@ -107,7 +129,7 @@ object Store {
             val ext = nm.substringAfterLast('.', "").filter { it.isLetterOrDigit() }.take(5)
             val id = UUID.randomUUID().toString()
             val f = File(mdir(c, pid), id.take(8) + (if (ext.isEmpty()) "" else ".$ext"))
-            cr.openInputStream(u)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+            cr.openInputStream(u)!!.use { i -> f.outputStream().use { o -> i.copyTo(o, 65536) } }
             var d = 0f
             var w = 0
             var h = 0

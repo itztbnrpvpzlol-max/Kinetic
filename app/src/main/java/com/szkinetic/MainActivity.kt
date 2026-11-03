@@ -15,6 +15,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        val old = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                java.io.File(filesDir, "crash.txt").writeText(android.util.Log.getStackTraceString(e))
+            } catch (x: Exception) {
+            }
+            old?.uncaughtException(t, e)
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= 28) {
             val lp = window.attributes

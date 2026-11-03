@@ -46,6 +46,8 @@ fun tc(t: Float, fps: Int): String {
     return "%d:%02d:%02d".format(f / fps / 60, f / fps % 60, f % fps)
 }
 
+fun tf(f: Int, fps: Int): String = "%d:%02d:%02d".format(f / fps / 60, f / fps % 60, f % fps)
+
 fun dl(t: Float): String {
     val s = t.toInt()
     return "%d:%02d".format(s / 60, s % 60)
@@ -246,7 +248,7 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
             var bm: Bitmap? = null
             if (l.kind >= 0) {
                 val m = lib.firstOrNull { it.id == l.mid } ?: continue
-                bm = Frames.get(m, time - l.start + l.off) ?: continue
+                bm = Frames.get(m, time - l.start + l.off, playing) ?: continue
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp
@@ -323,6 +325,7 @@ class Project(
             c.sel = c.sel.coerceIn(0, maxOf(c.layers.size - 1, 0))
         }
         media.remove(m)
+        Frames.drop(m.id)
         try {
             File(m.path).delete()
         } catch (e: Exception) {

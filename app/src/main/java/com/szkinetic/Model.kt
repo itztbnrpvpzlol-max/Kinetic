@@ -2,6 +2,9 @@ package com.szkinetic
 
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 import kotlin.math.abs
 
 data class Kf(val t: Float, val v: Float)
@@ -34,31 +37,71 @@ fun bump(k: SnapshotStateList<Kf>, t: Float, d: Float) {
     k.addAll(n)
 }
 
+fun tc(t: Float, fps: Int): String {
+    val f = (t * fps).toInt()
+    return "%d:%02d:%02d".format(f / fps / 60, f / fps % 60, f % fps)
+}
+
 class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Float) {
     val p = Array(4) { mutableStateListOf<Kf>() }
+
     init {
         p[0].add(Kf(0f, x))
         p[1].add(Kf(0f, y))
         p[2].add(Kf(0f, s))
         p[3].add(Kf(0f, r))
     }
+
+    fun copy(): Layer {
+        val n = Layer(name + " copy", col, 0f, 0f, 1f, 0f)
+        for (i in 0 until 4) {
+            n.p[i].clear()
+            n.p[i].addAll(p[i])
+        }
+        return n
+    }
+
+    fun js(): JSONObject {
+        val o = JSONObject()
+        o.put("n", name)
+        o.put("c", col)
+        val a = JSONArray()
+        for (k in p) {
+            val b = JSONArray()
+            for (f in k) b.put(JSONArray().put(f.t.toDouble()).put(f.v.toDouble()))
+            a.put(b)
+        }
+        o.put("p", a)
+        return o
+    }
+
+    companion object {
+        fun fromJs(o: JSONObject): Layer {
+            val l = Layer(o.getString("n"), o.getLong("c"), 0f, 0f, 1f, 0f)
+            val a = o.getJSONArray("p")
+            for (i in 0 until 4) {
+                l.p[i].clear()
+                val b = a.getJSONArray(i)
+                for (j in 0 until b.length()) {
+                    val k = b.getJSONArray(j)
+                    l.p[i].add(Kf(k.getDouble(0).toFloat(), k.getDouble(1).toFloat()))
+                }
+            }
+            return l
+        }
+    }
 }
 
-class Comp {
+class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     val layers = mutableStateListOf<Layer>()
     var time by mutableStateOf(0f)
     var playing by mutableStateOf(false)
     var sel by mutableStateOf(0)
-    val dur = 6f
 
-    init {
+    fun seed() {
         layers.add(Layer("Shape 1", COLS[0], -0.5f, 0f, 1f, 0f).also {
-            it.p[0].add(Kf(3f, 0.5f))
-            it.p[3].add(Kf(3f, 180f))
-        })
-        layers.add(Layer("Shape 2", COLS[1], 0.4f, 0.2f, 0.7f, 0f).also {
-            it.p[1].add(Kf(2f, -0.3f))
-            it.p[2].add(Kf(5f, 1.6f))
+            it.p[0].add(Kf(dur / 2, 0.5f))
+            it.p[3].add(Kf(dur / 2, 180f))
         })
     }
 
@@ -66,6 +109,20 @@ class Comp {
         val n = layers.size + 1
         layers.add(Layer("Shape $n", COLS[n % COLS.size], 0f, 0f, 1f, 0f))
         sel = layers.size - 1
+    }
+
+    fun dup(i: Int) {
+        if (i in layers.indices) {
+            layers.add(i + 1, layers[i].copy())
+            sel = i + 1
+        }
+    }
+
+    fun del(i: Int) {
+        if (i in layers.indices) {
+            layers.removeAt(i)
+            sel = sel.coerceIn(0, maxOf(layers.size - 1, 0))
+        }
     }
 
     fun snap(): FloatArray {
@@ -82,5 +139,52 @@ class Comp {
             a[o + 7] = 1f
         }
         return a
+    }
+
+    fun js(): JSONObject {
+        val o = JSONObject()
+        o.put("n", name)
+        o.put("w", w)
+        o.put("h", h)
+        o.put("f", fps)
+        o.put("d", dur.toDouble())
+        val a = JSONArray()
+        for (l in layers) a.put(l.js())
+        o.put("l", a)
+        return o
+    }
+
+    companion object {
+        fun fromJs(o: JSONObject): Comp {
+            val c = Comp(o.getString("n"), o.getInt("w"), o.getInt("h"), o.getInt("f"), o.getDouble("d").toFloat())
+            val a = o.getJSONArray("l")
+            for (i in 0 until a.length()) c.layers.add(Layer.fromJs(a.getJSONObject(i)))
+            return c
+        }
+    }
+}
+
+class Project(val id: String, val name: String, var mod: Long, val comps: MutableList<Comp>) {
+    fun js(): JSONObject {
+        val o = JSONObject()
+        o.put("id", id)
+        o.put("n", name)
+        o.put("m", mod)
+        val a = JSONArray()
+        for (c in comps) a.put(c.js())
+        o.put("c", a)
+        return o
+    }
+
+    companion object {
+        fun fromJs(o: JSONObject): Project {
+            val l = mutableListOf<Comp>()
+            val a = o.getJSONArray("c")
+            for (i in 0 until a.length()) l.add(Comp.fromJs(a.getJSONObject(i)))
+            if (l.isEmpty()) throw IllegalArgumentException("empty")
+            return Project(o.getString("id"), o.getString("n"), o.getLong("m"), l)
+        }
+
+        fun create(c: Comp) = Project(UUID.randomUUID().toString(), c.name, System.currentTimeMillis(), mutableListOf(c))
     }
 }

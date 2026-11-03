@@ -32,6 +32,7 @@ fun prog(): Int {
 class Rnd : GLSurfaceView.Renderer {
     @Volatile var s = FloatArray(0)
     @Volatile var t = 0f
+    @Volatile var ar = 16f / 9f
     var pg = 0
     var W = 0
     var H = 0
@@ -58,10 +59,10 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (W == 0 || H == 0) return
         var vw = W
-        var vh = W * 9 / 16
+        var vh = (W / ar).toInt()
         if (vh > H) {
             vh = H
-            vw = H * 16 / 9
+            vw = (H * ar).toInt()
         }
         val x = (W - vw) / 2
         val y = (H - vh) / 2
@@ -80,7 +81,7 @@ class Rnd : GLSurfaceView.Renderer {
         val ua = GLES20.glGetUniformLocation(pg, "a")
         val uc = GLES20.glGetUniformLocation(pg, "col")
         val ut = GLES20.glGetUniformLocation(pg, "tm")
-        GLES20.glUniform1f(ua, 16f / 9f)
+        GLES20.glUniform1f(ua, ar)
         GLES20.glUniform1f(ut, t)
         val d = s
         for (i in 0 until d.size / 8) {
@@ -109,6 +110,7 @@ fun Viewer(comp: Comp, m: Modifier) {
         update = { v ->
             r.s = comp.snap()
             r.t = comp.time
+            r.ar = comp.w.toFloat() / comp.h
             v.requestRender()
         }
     )

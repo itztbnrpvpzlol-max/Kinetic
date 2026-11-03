@@ -222,11 +222,12 @@ object Aud {
         }
         val lib = c.lib
         val ls = c.layers
+        val solo = ls.any { it.solo }
         for (i in 0 until ls.size) {
             val l = ls[i]
             if (l.kind < 1) continue
             val m = lib.firstOrNull { it.id == l.mid } ?: continue
-            val act = on && !l.mute && c.time >= l.start && c.time < l.end(c.dur)
+            val act = on && !l.mute && (!solo || l.solo) && c.time >= l.start && c.time < l.end(c.dur)
             val p = ps[l]
             try {
                 if (act) {

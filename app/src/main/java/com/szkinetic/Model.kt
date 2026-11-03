@@ -8,43 +8,263 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
-data class Kf(val t: Float, val v: Float, val mode: Int = 0)
+// ---- keyframes -------------------------------------------------------------
+// ip: 0 linear, 1 bezier, 2 hold.  ii/isp = incoming influence (0..1) and speed (units/sec),
+// oi/osp = outgoing influence and speed.  Easy Ease = influence 1/3, speed 0.
+data class Kf(
+    val t: Float,
+    val v: Float,
+    val ip: Int = 0,
+    val ii: Float = 1f / 3f,
+    val isp: Float = 0f,
+    val oi: Float = 1f / 3f,
+    val osp: Float = 0f
+)
 
-val PN = arrayOf("Position X", "Position Y", "Scale", "Rotation")
-val ST = floatArrayOf(0.05f, 0.05f, 0.1f, 15f)
+private fun bz(p0: Float, p1: Float, p2: Float, p3: Float, s: Float): Float {
+    val u = 1f - s
+    return u * u * u * p0 + 3f * u * u * s * p1 + 3f * u * s * s * p2 + s * s * s * p3
+}
+
+fun seg(a: Kf, b: Kf, t: Float): Float {
+    val dt = b.t - a.t
+    if (dt <= 1e-6f) return b.v
+    if (a.ip == 2) return a.v
+    if (a.ip == 0 && b.ip == 0) return a.v + (b.v - a.v) * ((t - a.t) / dt)
+    val sl = (b.v - a.v) / dt
+    val oi = (if (a.ip == 1) a.oi else 1f / 3f).coerceIn(0.001f, 1f)
+    val os = if (a.ip == 1) a.osp else sl
+    val ii = (if (b.ip == 1) b.ii else 1f / 3f).coerceIn(0.001f, 1f)
+    val isp = if (b.ip == 1) b.isp else sl
+    val x1 = a.t + oi * dt
+    val y1 = a.v + os * oi * dt
+    val x2 = b.t - ii * dt
+    val y2 = b.v - isp * ii * dt
+    var lo = 0f
+    var hi = 1f
+    var s = (t - a.t) / dt
+    for (n in 0 until 24) {
+        val x = bz(a.t, x1, x2, b.t, s)
+        if (x < t) lo = s else hi = s
+        s = (lo + hi) * 0.5f
+    }
+    return bz(a.v, y1, y2, b.v, s)
+}
+
+fun ev(k: List<Kf>, t: Float): Float {
+    val n = k.size
+    if (n == 0) return 0f
+    if (n == 1 || t <= k[0].t) return k[0].v
+    if (t >= k[n - 1].t) return k[n - 1].v
+    var lo = 0
+    var hi = n - 1
+    while (hi - lo > 1) {
+        val m = (lo + hi) ushr 1
+        if (k[m].t <= t) lo = m else hi = m
+    }
+    return seg(k[lo], k[hi], t)
+}
+
+// A single animatable value. Stopwatch off = static value (sv); on = keyframes (k).
+class Prop(val def: Float) {
+    var sv by mutableStateOf(def)
+    val k = mutableStateListOf<Kf>()
+    val anim: Boolean get() = k.isNotEmpty()
+
+    fun get(t: Float): Float = if (k.isEmpty()) sv else ev(k, t)
+
+    fun idx(t: Float, e: Float): Int {
+        for (i in 0 until k.size) if (abs(k[i].t - t) <= e) return i
+        return -1
+    }
+
+    fun put(f: Kf, e: Float) {
+        val i = idx(f.t, e)
+        if (i >= 0) {
+            k[i] = f
+            return
+        }
+        var j = 0
+        while (j < k.size && k[j].t < f.t) j++
+        k.add(j, f)
+    }
+
+    fun set(t: Float, v: Float, e: Float) {
+        if (k.isEmpty()) {
+            sv = v
+            return
+        }
+        val i = idx(t, e)
+        if (i >= 0) k[i] = k[i].copy(v = v) else put(Kf(t, v), e)
+    }
+
+    // stopwatch toggle
+    fun watch(t: Float) {
+        if (k.isEmpty()) {
+            k.add(Kf(t, sv))
+        } else {
+            sv = get(t)
+            k.clear()
+        }
+    }
+
+    fun toggle(t: Float, e: Float) {
+        val i = idx(t, e)
+        if (i >= 0) {
+            if (k.size == 1) sv = k[0].v
+            k.removeAt(i)
+        } else {
+            put(Kf(t, get(t)), e)
+        }
+    }
+
+    fun next(t: Float, e: Float): Float? = k.firstOrNull { it.t > t + e }?.t
+    fun prev(t: Float, e: Float): Float? = k.lastOrNull { it.t < t - e }?.t
+
+    private fun slope(i: Int, j: Int): Float {
+        if (i < 0 || j < 0 || i >= k.size || j >= k.size) return 0f
+        val dt = k[j].t - k[i].t
+        return if (abs(dt) < 1e-6f) 0f else (k[j].v - k[i].v) / dt
+    }
+
+    // 0 linear, 1 auto bezier, 2 hold, 3 easy ease, 4 ease in, 5 ease out
+    fun interp(i: Int, m: Int) {
+        if (i < 0 || i >= k.size) return
+        val f = k[i]
+        val third = 1f / 3f
+        k[i] = when (m) {
+            0 -> f.copy(ip = 0)
+            2 -> f.copy(ip = 2)
+            1 -> {
+                val sp = if (i == 0 || i == k.size - 1) 0f else slope(i - 1, i + 1)
+                f.copy(ip = 1, ii = third, isp = sp, oi = third, osp = sp)
+            }
+            3 -> f.copy(ip = 1, ii = third, isp = 0f, oi = third, osp = 0f)
+            4 -> f.copy(
+                ip = 1, ii = third, isp = 0f,
+                oi = if (f.ip == 1) f.oi else third, osp = if (f.ip == 1) f.osp else slope(i, i + 1)
+            )
+            else -> f.copy(
+                ip = 1, oi = third, osp = 0f,
+                ii = if (f.ip == 1) f.ii else third, isp = if (f.ip == 1) f.isp else slope(i - 1, i)
+            )
+        }
+    }
+
+    fun copyFrom(o: Prop) {
+        sv = o.sv
+        k.clear()
+        k.addAll(o.k)
+    }
+
+    fun js(): JSONObject {
+        val o = JSONObject()
+        o.put("v", sv.toDouble())
+        val a = JSONArray()
+        for (f in k) {
+            a.put(
+                JSONArray().put(f.t.toDouble()).put(f.v.toDouble()).put(f.ip)
+                    .put(f.ii.toDouble()).put(f.isp.toDouble()).put(f.oi.toDouble()).put(f.osp.toDouble())
+            )
+        }
+        o.put("k", a)
+        return o
+    }
+
+    fun load(o: JSONObject) {
+        sv = o.optDouble("v", def.toDouble()).toFloat()
+        k.clear()
+        val a = o.optJSONArray("k") ?: return
+        for (i in 0 until a.length()) {
+            val b = a.getJSONArray(i)
+            k.add(
+                Kf(
+                    b.getDouble(0).toFloat(), b.getDouble(1).toFloat(), b.optInt(2, 0),
+                    b.optDouble(3, 1.0 / 3.0).toFloat(), b.optDouble(4, 0.0).toFloat(),
+                    b.optDouble(5, 1.0 / 3.0).toFloat(), b.optDouble(6, 0.0).toFloat()
+                )
+            )
+        }
+    }
+}
+
+// ---- layer property channels ------------------------------------------------
+const val PX = 0
+const val PY = 1
+const val SX = 2
+const val RT = 3
+const val SY = 4
+const val AX = 5
+const val AY = 6
+const val OP = 7
+const val PZ = 8
+const val NCH = 9
+
+val PN = arrayOf("Position X", "Position Y", "Scale X", "Rotation", "Scale Y", "Anchor X", "Anchor Y", "Opacity", "Position Z")
+val PDEF = floatArrayOf(0f, 0f, 1f, 0f, 1f, 0f, 0f, 1f, 0f)
 val COLS = longArrayOf(0xFF4A90E2, 0xFFE2574A, 0xFF4AE27B, 0xFFE2C84A)
 val MCOL = longArrayOf(0xFF7FB2D9, 0xFF9C8FDB, 0xFF6DBF8B)
 val KN = arrayOf("Image", "Video", "Audio")
+val LABELS = longArrayOf(
+    0xFFE2574A, 0xFFE2C84A, 0xFF4AD6D6, 0xFFE28FC0, 0xFF9C8FDB, 0xFFE8A070,
+    0xFF6DBF8B, 0xFF4A90E2, 0xFF4AE27B, 0xFFA060D0, 0xFFE08A30, 0xFF9A7A5A
+)
 
-fun ev(k: List<Kf>, t: Float): Float {
-    if (k.isEmpty()) return 0f
-    if (t <= k.first().t) return k.first().v
-    if (t >= k.last().t) return k.last().v
-    for (i in 0 until k.size - 1) {
-        val a = k[i]
-        val b = k[i + 1]
-        if (t >= a.t && t <= b.t) {
-            val u = (t - a.t) / (b.t - a.t)
-            val q = when (a.mode) {
-                1 -> u * u * (3f - 2f * u) // eased
-                2 -> 0f                    // hold
-                else -> u                  // linear
-            }
-            return a.v + (b.v - a.v) * q
+// ---- effects ----------------------------------------------------------------
+class FxDef(
+    val name: String,
+    val pn: Array<String>,
+    val def: FloatArray,
+    val lo: FloatArray,
+    val hi: FloatArray,
+    val unit: Array<String>,
+    val sens: FloatArray
+)
+
+val FXS = listOf(
+    FxDef("Gaussian Blur", arrayOf("Blurriness"), floatArrayOf(0f), floatArrayOf(0f), floatArrayOf(250f), arrayOf("px"), floatArrayOf(0.5f)),
+    FxDef(
+        "Brightness & Contrast", arrayOf("Brightness", "Contrast"), floatArrayOf(0f, 0f),
+        floatArrayOf(-100f, -100f), floatArrayOf(100f, 100f), arrayOf("", ""), floatArrayOf(0.5f, 0.5f)
+    ),
+    FxDef(
+        "Hue/Saturation", arrayOf("Hue", "Saturation"), floatArrayOf(0f, 0f),
+        floatArrayOf(-180f, -100f), floatArrayOf(180f, 100f), arrayOf("°", ""), floatArrayOf(0.5f, 0.5f)
+    )
+)
+
+class Fx(val type: Int) {
+    var on by mutableStateOf(true)
+    val pr = Array(FXS[type].pn.size) { Prop(FXS[type].def[it]) }
+
+    fun copy(): Fx {
+        val f = Fx(type)
+        f.on = on
+        for (i in pr.indices) f.pr[i].copyFrom(pr[i])
+        return f
+    }
+
+    fun js(): JSONObject {
+        val a = JSONArray()
+        for (p in pr) a.put(p.js())
+        return JSONObject().put("t", type).put("on", on).put("p", a)
+    }
+
+    companion object {
+        fun fromJs(o: JSONObject): Fx {
+            val f = Fx(o.getInt("t").coerceIn(0, FXS.size - 1))
+            f.on = o.optBoolean("on", true)
+            val a = o.optJSONArray("p")
+            if (a != null) for (i in 0 until minOf(a.length(), f.pr.size)) f.pr[i].load(a.getJSONObject(i))
+            return f
         }
     }
-    return k.last().v
 }
 
-fun bump(k: SnapshotStateList<Kf>, t: Float, d: Float) {
-    val v = ev(k, t) + d
-    val i = k.indexOfFirst { abs(it.t - t) < 0.04f }
-    val n = if (i >= 0) k.toMutableList().also { it[i] = Kf(it[i].t, v) } else (k + Kf(t, v)).sortedBy { it.t }
-    k.clear()
-    k.addAll(n)
-}
-
+// ---- formatting -------------------------------------------------------------
 fun tc(t: Float, fps: Int): String {
     val f = (t * fps).toInt()
     return "%d:%02d:%02d".format(f / fps / 60, f / fps % 60, f % fps)
@@ -72,8 +292,24 @@ class Media(val id: String, val name: String, val kind: Int, val fn: String, val
     }
 }
 
-class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Float) {
-    val p = Array(4) { mutableStateListOf<Kf>() }
+// 2x3 affine in "e-space" (square units, y up; 1 unit = half comp height)
+class Aff(val a: Float, val b: Float, val c: Float, val d: Float, val tx: Float, val ty: Float) {
+    fun mul(o: Aff) = Aff(
+        a * o.a + c * o.b, b * o.a + d * o.b,
+        a * o.c + c * o.d, b * o.c + d * o.d,
+        a * o.tx + c * o.ty + tx, b * o.tx + d * o.ty + ty
+    )
+}
+
+class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
+    var name by mutableStateOf(n)
+    val col = c
+    var lcol by mutableStateOf(c)
+    var uid = UUID.randomUUID().toString().take(8)
+    var role = 0 // 0 normal, 1 null, 2 adjustment
+    var parent by mutableStateOf("")
+    val pr = Array(NCH) { Prop(PDEF[it]) }
+    val fx = mutableStateListOf<Fx>()
     var mid by mutableStateOf("")
     var kind = -1
     var start by mutableStateOf(0f)
@@ -82,25 +318,31 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
     var vis by mutableStateOf(true)
     var lock by mutableStateOf(false)
     var mute by mutableStateOf(false)
-    // Parent is stored by stable layer name; empty means no parent.
-    var parentId by mutableStateOf("")
-    var adjustment by mutableStateOf(false)
+    var solo by mutableStateOf(false)
+    var shy by mutableStateOf(false)
+    var is3d by mutableStateOf(false)
+    var link by mutableStateOf(true)
+    var open by mutableStateOf(false)
 
     init {
-        p[0].add(Kf(0f, x))
-        p[1].add(Kf(0f, y))
-        p[2].add(Kf(0f, s))
-        p[3].add(Kf(0f, r))
+        pr[PX].sv = x
+        pr[PY].sv = y
+        pr[SX].sv = s
+        pr[SY].sv = s
+        pr[RT].sv = r
     }
+
+    fun gv(i: Int, t: Float): Float = pr[i].get(t)
 
     fun end(d: Float) = minOf(start + len, d)
 
     fun copy(n: String = name + " copy"): Layer {
         val q = Layer(n, col, 0f, 0f, 1f, 0f)
-        for (i in 0 until 4) {
-            q.p[i].clear()
-            q.p[i].addAll(p[i])
-        }
+        q.lcol = lcol
+        q.role = role
+        q.parent = parent
+        for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
+        for (f in fx) q.fx.add(f.copy())
         q.mid = mid
         q.kind = kind
         q.start = start
@@ -109,8 +351,9 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         q.vis = vis
         q.lock = lock
         q.mute = mute
-        q.parentId = parentId
-        q.adjustment = adjustment
+        q.shy = shy
+        q.is3d = is3d
+        q.link = link
         return q
     }
 
@@ -118,13 +361,16 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         val o = JSONObject()
         o.put("n", name)
         o.put("c", col)
+        o.put("lc", lcol)
+        o.put("u", uid)
+        o.put("pa", parent)
+        o.put("ro", role)
         val a = JSONArray()
-        for (k in p) {
-            val b = JSONArray()
-            for (f in k) b.put(JSONArray().put(f.t.toDouble()).put(f.v.toDouble()).put(f.mode))
-            a.put(b)
-        }
-        o.put("p", a)
+        for (p in pr) a.put(p.js())
+        o.put("pr", a)
+        val f = JSONArray()
+        for (x in fx) f.put(x.js())
+        o.put("fx", f)
         o.put("mi", mid)
         o.put("k", kind)
         o.put("s", start.toDouble())
@@ -133,23 +379,45 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
         o.put("v", vis)
         o.put("lk", lock)
         o.put("mu", mute)
-            .put("pa", parentId)
-            .put("ad", adjustment)
+        o.put("so", solo)
+        o.put("sh", shy)
+        o.put("3d", is3d)
+        o.put("sl", link)
         return o
     }
 
     companion object {
         fun fromJs(o: JSONObject): Layer {
             val l = Layer(o.getString("n"), o.getLong("c"), 0f, 0f, 1f, 0f)
-            val a = o.getJSONArray("p")
-            for (i in 0 until 4) {
-                l.p[i].clear()
-                val b = a.getJSONArray(i)
-                for (j in 0 until b.length()) {
-                    val k = b.getJSONArray(j)
-                    l.p[i].add(Kf(k.getDouble(0).toFloat(), k.getDouble(1).toFloat(), k.optInt(2, 0)))
+            l.lcol = o.optLong("lc", l.col)
+            val u = o.optString("u", "")
+            if (u.isNotEmpty()) l.uid = u
+            l.parent = o.optString("pa", "")
+            l.role = o.optInt("ro", 0)
+            val pa = o.optJSONArray("pr")
+            if (pa != null) {
+                for (i in 0 until minOf(pa.length(), NCH)) l.pr[i].load(pa.getJSONObject(i))
+            } else {
+                // Old format: 4 channels (PosX, PosY, Scale, Rotation) of [t, v] keys, smoothstep-eased.
+                val a = o.getJSONArray("p")
+                val map = intArrayOf(PX, PY, SX, RT)
+                for (i in 0 until minOf(4, a.length())) {
+                    val b = a.getJSONArray(i)
+                    val ks = ArrayList<Kf>()
+                    for (j in 0 until b.length()) {
+                        val k = b.getJSONArray(j)
+                        ks.add(Kf(k.getDouble(0).toFloat(), k.getDouble(1).toFloat(), 1, 1f / 3f, 0f, 1f / 3f, 0f))
+                    }
+                    val targets = if (i == 2) intArrayOf(SX, SY) else intArrayOf(map[i])
+                    for (ch in targets) {
+                        val p = l.pr[ch]
+                        p.k.clear()
+                        if (ks.size == 1 && ks[0].t <= 0.0001f) p.sv = ks[0].v else p.k.addAll(ks)
+                    }
                 }
             }
+            val fa = o.optJSONArray("fx")
+            if (fa != null) for (i in 0 until fa.length()) l.fx.add(Fx.fromJs(fa.getJSONObject(i)))
             l.mid = o.optString("mi", "")
             l.kind = o.optInt("k", -1)
             l.start = o.optDouble("s", 0.0).toFloat()
@@ -158,66 +426,105 @@ class Layer(val name: String, val col: Long, x: Float, y: Float, s: Float, r: Fl
             l.vis = o.optBoolean("v", true)
             l.lock = o.optBoolean("lk", false)
             l.mute = o.optBoolean("mu", false)
-            l.parentId = o.optString("pa", "")
-            l.adjustment = o.optBoolean("ad", false)
+            l.solo = o.optBoolean("so", false)
+            l.shy = o.optBoolean("sh", false)
+            l.is3d = o.optBoolean("3d", false)
+            l.link = o.optBoolean("sl", true)
             return l
         }
     }
 }
 
-class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
+// Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
+const val STR = 13
+
+class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
+    var id = UUID.randomUUID().toString()
+    var name by mutableStateOf(n)
     val layers = mutableStateListOf<Layer>()
     var lib: List<Media> = emptyList()
+    var proj: Project? = null
     var time by mutableStateOf(0f)
     var playing by mutableStateOf(false)
+    var loop by mutableStateOf(true)
     var sel by mutableStateOf(0)
 
-    // Compositions are intentionally created empty. No demo content is seeded.
-
-    fun addNull() {
-        var n = 1
-        while (layers.any { it.name == "Null $n" }) n++
-        layers.add(0, Layer("Null $n", 0xFFB18CDB, 0f, 0f, 1f, 0f).also {
-            it.kind = 3
-            it.len = dur
-        })
-        sel = 0
+    fun mark() {
+        proj?.mark()
     }
 
-    fun addAdjustment() {
-        var n = 1
-        while (layers.any { it.name == "Adjustment Layer $n" }) n++
-        layers.add(0, Layer("Adjustment Layer $n", 0xFFB18CDB, 0f, 0f, 1f, 0f).also {
-            it.kind = 4
-            it.adjustment = true
-            it.len = dur
-        })
-        sel = 0
+    fun eps(): Float = 0.5f / fps
+
+    // ---- display units (what the user sees/edits) vs stored units ----
+    fun toD(ch: Int, v: Float): Float = when (ch) {
+        PX -> (v + 1f) / 2f * w
+        PY -> (1f - v) / 2f * h
+        SX, SY, OP -> v * 100f
+        AX, PZ -> v * h / 2f
+        AY -> -v * h / 2f
+        else -> v
     }
 
-    fun canParent(child: Layer, parent: Layer?): Boolean {
-        if (parent == null) return true
-        if (child === parent || parent.kind != 3) return false
-        var p: Layer? = parent
-        val seen = mutableSetOf<Layer>()
-        while (p != null) {
-            if (p === child || !seen.add(p)) return false
-            p = layers.firstOrNull { it.name == p?.parentId && it.kind == 3 }
+    fun fromD(ch: Int, d: Float): Float = when (ch) {
+        PX -> d / w * 2f - 1f
+        PY -> 1f - 2f * d / h
+        SX, SY, OP -> d / 100f
+        AX, PZ -> d * 2f / h
+        AY -> -d * 2f / h
+        else -> d
+    }
+
+    fun setD(l: Layer, ch: Int, d: Float) {
+        val v = fromD(ch, d)
+        val t = time
+        val e = eps()
+        if (l.link && (ch == SX || ch == SY)) {
+            val o = if (ch == SX) SY else SX
+            val cur = l.pr[ch].get(t)
+            val oc = l.pr[o].get(t)
+            l.pr[o].set(t, if (abs(cur) > 1e-4f) oc * v / cur else v, e)
         }
-        return true
+        l.pr[ch].set(t, v, e)
     }
 
-    fun setParent(child: Layer, parent: Layer?) {
-        if (canParent(child, parent)) child.parentId = parent?.name ?: ""
+    fun resetD(l: Layer, ch: Int) {
+        val e = eps()
+        l.pr[ch].set(time, PDEF[ch], e)
+        if (l.link && (ch == SX || ch == SY)) l.pr[if (ch == SX) SY else SX].set(time, 1f, e)
+    }
+
+    fun setProp(p: Prop, v: Float) {
+        p.set(time, v, eps())
+    }
+
+    // ---- layer creation ----
+    private fun insertAt(): Int = if (layers.isEmpty()) 0 else sel.coerceIn(0, layers.size)
+
+    private fun addLayer(l: Layer) {
+        mark()
+        l.len = dur
+        val at = insertAt()
+        layers.add(at, l)
+        sel = at
     }
 
     fun add() {
-        val n = layers.size + 1
-        layers.add(0, Layer("Shape $n", COLS[n % COLS.size], 0f, 0f, 1f, 0f).also { it.len = dur })
-        sel = 0
+        val n = layers.count { it.role == 0 && it.kind < 0 } + 1
+        addLayer(Layer("Shape $n", COLS[n % COLS.size], 0f, 0f, 1f, 0f))
+    }
+
+    fun addNull() {
+        val n = layers.count { it.role == 1 } + 1
+        addLayer(Layer("Null $n", 0xFFE2574A, 0f, 0f, 1f, 0f).also { it.role = 1 })
+    }
+
+    fun addAdj() {
+        val n = layers.count { it.role == 2 } + 1
+        addLayer(Layer("Adjustment Layer $n", 0xFFD0D0D0, 0f, 0f, 1f, 0f).also { it.role = 2 })
     }
 
     fun addMedia(m: Media) {
+        mark()
         val l = Layer(m.name.substringBeforeLast('.'), MCOL[m.kind], 0f, 0f, 1f, 0f)
         l.mid = m.id
         l.kind = m.kind
@@ -231,22 +538,36 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
 
     fun dup(i: Int) {
         if (i in layers.indices) {
+            mark()
             layers.add(i, layers[i].copy())
             sel = i
         }
     }
 
     fun del(i: Int) {
-        if (i in layers.indices) {
-            layers.removeAt(i)
-            sel = sel.coerceIn(0, maxOf(layers.size - 1, 0))
-        }
+        val l = layers.getOrNull(i) ?: return
+        mark()
+        // children of the deleted layer are re-parented to its own parent
+        for (c in layers) if (c.parent == l.uid) c.parent = l.parent
+        layers.removeAt(i)
+        sel = sel.coerceIn(0, maxOf(layers.size - 1, 0))
+    }
+
+    fun reorder(i: Int, to: Int) {
+        if (i !in layers.indices) return
+        val j = to.coerceIn(0, layers.size - 1)
+        if (i == j) return
+        mark()
+        val l = layers.removeAt(i)
+        layers.add(j, l)
+        sel = j
     }
 
     fun split(i: Int) {
         val l = layers.getOrNull(i) ?: return
         val e = l.end(dur)
         if (time <= l.start + 0.05f || time >= e - 0.05f) return
+        mark()
         val n = l.copy(l.name)
         n.off = l.off + (time - l.start)
         n.start = time
@@ -278,21 +599,171 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
         }
     }
 
+    fun togglePlay() {
+        if (!playing && time >= dur - 0.001f) time = 0f
+        playing = !playing
+    }
+
+    fun stepFrames(n: Int) {
+        time = ((time * fps).let { Math.round(it) } + n).coerceIn(0, (dur * fps).toInt()) / fps.toFloat()
+    }
+
+    // ---- parenting ----
+    fun layerOf(uid: String): Layer? = if (uid.isEmpty()) null else layers.firstOrNull { it.uid == uid }
+
+    fun canParent(c: Layer, p: Layer?): Boolean {
+        if (p == null) return true
+        if (layers.none { it === p }) return false
+        var q: Layer? = p
+        var n = 0
+        while (q != null && n < 10000) {
+            if (q === c) return false
+            q = layerOf(q.parent)
+            n++
+        }
+        return n < 10000
+    }
+
+    fun setParent(c: Layer, p: Layer?): Boolean {
+        if (!canParent(c, p)) return false
+        mark()
+        c.parent = p?.uid ?: ""
+        return true
+    }
+
+    // new null object that becomes the parent of layer i
+    fun nullParent(i: Int) {
+        val l = layers.getOrNull(i) ?: return
+        mark()
+        val n = layers.count { it.role == 1 } + 1
+        val nl = Layer("Null $n", 0xFFE2574A, 0f, 0f, 1f, 0f)
+        nl.role = 1
+        nl.len = dur
+        nl.parent = l.parent
+        layers.add(i, nl)
+        l.parent = nl.uid
+        sel = i + 1
+    }
+
+    // drop references to missing layers and break cycles (after load)
+    fun fixParents() {
+        for (l in layers) if (l.parent.isNotEmpty() && layerOf(l.parent) == null) l.parent = ""
+        for (l in layers) {
+            var q: Layer? = l
+            var n = 0
+            while (q != null && n <= layers.size) {
+                q = layerOf(q.parent)
+                n++
+            }
+            if (q != null) l.parent = ""
+        }
+    }
+
+    private fun world(l: Layer, t: Float, asp: Float, memo: HashMap<Layer, Aff>, depth: Int): Aff? {
+        val h = memo[l]
+        if (h != null) return h
+        if (depth > 64) return null
+        val par = layerOf(l.parent)
+        var pw: Aff? = null
+        if (par != null && par !== l) {
+            pw = world(par, t, asp, memo, depth + 1)
+            if (pw == null) return null
+        }
+        var tx = l.gv(PX, t) * asp
+        var ty = l.gv(PY, t)
+        var sx = l.gv(SX, t)
+        var sy = l.gv(SY, t)
+        if (l.is3d) {
+            val dd = 1f + l.gv(PZ, t)
+            if (dd < 0.05f) return null
+            val k = 1f / dd
+            tx *= k
+            ty *= k
+            sx *= k
+            sy *= k
+        }
+        val r = Math.toRadians(l.gv(RT, t).toDouble())
+        val cs = cos(r).toFloat()
+        val sn = sin(r).toFloat()
+        val loc = Aff(1f, 0f, 0f, 1f, tx, ty)
+            .mul(Aff(cs, sn, -sn, cs, 0f, 0f))
+            .mul(Aff(sx, 0f, 0f, sy, 0f, 0f))
+            .mul(Aff(1f, 0f, 0f, 1f, -l.gv(AX, t), -l.gv(AY, t)))
+        val m = if (pw != null) pw.mul(loc) else loc
+        memo[l] = m
+        return m
+    }
+
+    private fun encFx(l: Layer, t: Float): FloatArray {
+        val o = FloatArray(l.fx.size * 5)
+        var n = 0
+        for (f in l.fx) {
+            if (!f.on) continue
+            when (f.type) {
+                0 -> {
+                    val b = f.pr[0].get(t)
+                    if (b > 0.01f) {
+                        o[n] = 0f
+                        o[n + 1] = b / w
+                        n += 5
+                    }
+                }
+                1 -> {
+                    val b = f.pr[0].get(t)
+                    val c = f.pr[1].get(t)
+                    if (b != 0f || c != 0f) {
+                        o[n] = 1f
+                        o[n + 1] = b / 200f
+                        o[n + 2] = c / 100f
+                        n += 5
+                    }
+                }
+                else -> {
+                    val hu = f.pr[0].get(t)
+                    val sa = f.pr[1].get(t)
+                    if (hu != 0f || sa != 0f) {
+                        o[n] = 1f
+                        o[n + 3] = Math.toRadians(hu.toDouble()).toFloat()
+                        o[n + 4] = sa / 100f
+                        n += 5
+                    }
+                }
+            }
+        }
+        return o.copyOf(n)
+    }
+
     fun frame(): Frame {
         val n = layers.size
-        val a = FloatArray(n * 10)
+        val a = FloatArray(n * STR)
         val b = arrayOfNulls<Bitmap>(n)
+        val f = arrayOfNulls<FloatArray>(n)
         val asp = w.toFloat() / h
+        val t = time
+        val memo = HashMap<Layer, Aff>()
+        val solo = layers.any { it.solo }
         var k = 0
         for (i in n - 1 downTo 0) {
             val l = layers[i]
-            if (!l.vis || l.kind == 2 || l.kind == 3 || l.kind == 4 || time < l.start || time > l.end(dur)) continue
+            if (l.role == 1 || !l.vis || l.kind == 2 || t < l.start || t > l.end(dur)) continue
+            if (solo && !l.solo) continue
+            val o = k * STR
+            val op = l.gv(OP, t).coerceIn(0f, 1f)
+            if (l.role == 2) {
+                val enc = encFx(l, t)
+                if (enc.isEmpty()) continue
+                a[o + 9] = op
+                a[o + 12] = 1f
+                f[k] = enc
+                k++
+                continue
+            }
             var ex = 0.3f
             var ey = 0.3f
             var bm: Bitmap? = null
             if (l.kind >= 0) {
                 val m = lib.firstOrNull { it.id == l.mid } ?: continue
-                bm = Frames.get(m, time - l.start + l.off, playing) ?: continue
+                bm = Frames.get(m, t - l.start + l.off, playing) ?: continue
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp
@@ -302,31 +773,34 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
                     ey = 1f
                 }
             }
-            val o = k * 10
-            a[o] = ev(l.p[0], time)
-            a[o + 1] = ev(l.p[1], time)
-            a[o + 2] = ev(l.p[2], time)
-            a[o + 3] = Math.toRadians(ev(l.p[3], time).toDouble()).toFloat()
+            val m = world(l, t, asp, memo, 0) ?: continue
+            a[o] = m.a
+            a[o + 1] = m.b
+            a[o + 2] = m.c
+            a[o + 3] = m.d
+            a[o + 4] = m.tx
+            a[o + 5] = m.ty
             if (bm != null) {
-                a[o + 4] = 1f
-                a[o + 5] = 1f
                 a[o + 6] = 1f
+                a[o + 7] = 1f
+                a[o + 8] = 1f
             } else {
-                a[o + 4] = ((l.col shr 16) and 255L) / 255f
-                a[o + 5] = ((l.col shr 8) and 255L) / 255f
-                a[o + 6] = (l.col and 255L) / 255f
+                a[o + 6] = ((l.col shr 16) and 255L) / 255f
+                a[o + 7] = ((l.col shr 8) and 255L) / 255f
+                a[o + 8] = (l.col and 255L) / 255f
             }
-            a[o + 7] = 1f
-            a[o + 8] = ex
-            a[o + 9] = ey
+            a[o + 9] = op
+            a[o + 10] = ex
+            a[o + 11] = ey
             b[k] = bm
             k++
         }
-        return Frame(a.copyOf(k * 10), b.copyOf(k))
+        return Frame(a.copyOf(k * STR), b.copyOf(k), f.copyOf(k))
     }
 
     fun js(): JSONObject {
         val o = JSONObject()
+        o.put("ci", id)
         o.put("n", name)
         o.put("w", w)
         o.put("h", h)
@@ -341,12 +815,14 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
     companion object {
         fun fromJs(o: JSONObject): Comp {
             val c = Comp(o.getString("n"), o.getInt("w"), o.getInt("h"), o.getInt("f"), o.getDouble("d").toFloat())
+            c.id = o.optString("ci", c.id)
             val a = o.getJSONArray("l")
             for (i in 0 until a.length()) {
                 val l = Layer.fromJs(a.getJSONObject(i))
                 l.len = minOf(l.len, c.dur)
                 c.layers.add(l)
             }
+            c.fixParents()
             return c
         }
     }
@@ -354,13 +830,80 @@ class Comp(val name: String, val w: Int, val h: Int, val fps: Int, val dur: Floa
 
 class Project(
     val id: String,
-    val name: String,
+    var name: String,
     var mod: Long,
-    val comps: MutableList<Comp>,
+    val comps: SnapshotStateList<Comp> = mutableStateListOf(),
     val media: SnapshotStateList<Media> = mutableStateListOf()
 ) {
+    private val ust = ArrayList<String>()
+    private val rst = ArrayList<String>()
+
     init {
-        comps.forEach { it.lib = media }
+        comps.forEach {
+            it.lib = media
+            it.proj = this
+        }
+    }
+
+    fun addComp(c: Comp) {
+        c.lib = media
+        c.proj = this
+        comps.add(c)
+    }
+
+    fun snap(): String {
+        val a = JSONArray()
+        for (c in comps) a.put(c.js())
+        return a.toString()
+    }
+
+    fun mark() {
+        val s = snap()
+        if (ust.isEmpty() || ust[ust.size - 1] != s) {
+            ust.add(s)
+            if (ust.size > 50) ust.removeAt(0)
+        }
+        rst.clear()
+    }
+
+    fun clearUndo() {
+        ust.clear()
+        rst.clear()
+    }
+
+    private fun restore(s: String) {
+        val a = JSONArray(s)
+        val old = comps.toList()
+        val n = ArrayList<Comp>()
+        for (i in 0 until a.length()) {
+            val c = Comp.fromJs(a.getJSONObject(i))
+            val o = old.firstOrNull { it.id == c.id }
+            if (o != null) {
+                c.time = o.time.coerceIn(0f, c.dur)
+                c.sel = o.sel.coerceIn(0, maxOf(c.layers.size - 1, 0))
+                c.loop = o.loop
+            }
+            c.lib = media
+            c.proj = this
+            n.add(c)
+        }
+        old.forEach { it.playing = false }
+        comps.clear()
+        comps.addAll(n)
+    }
+
+    fun undo(): Boolean {
+        if (ust.isEmpty()) return false
+        rst.add(snap())
+        restore(ust.removeAt(ust.size - 1))
+        return true
+    }
+
+    fun redo(): Boolean {
+        if (rst.isEmpty()) return false
+        ust.add(snap())
+        restore(rst.removeAt(rst.size - 1))
+        return true
     }
 
     fun rm(m: Media) {
@@ -369,6 +912,7 @@ class Project(
             c.sel = c.sel.coerceIn(0, maxOf(c.layers.size - 1, 0))
         }
         media.remove(m)
+        clearUndo() // the file is deleted, so earlier states can no longer be restored
         Frames.drop(m.id)
         try {
             File(m.path).delete()
@@ -392,7 +936,7 @@ class Project(
 
     companion object {
         fun fromJs(o: JSONObject): Project {
-            val l = mutableListOf<Comp>()
+            val l = mutableStateListOf<Comp>()
             val a = o.getJSONArray("c")
             for (i in 0 until a.length()) l.add(Comp.fromJs(a.getJSONObject(i)))
             val ms = mutableStateListOf<Media>()
@@ -401,6 +945,7 @@ class Project(
             return Project(o.getString("id"), o.getString("n"), o.getLong("m"), l, ms)
         }
 
-        fun create(c: Comp) = Project(UUID.randomUUID().toString(), c.name, System.currentTimeMillis(), mutableListOf(c))
+        // A new project is completely empty: no comps, layers, media, keyframes or effects.
+        fun empty(name: String = "Untitled Project") = Project(UUID.randomUUID().toString(), name, System.currentTimeMillis())
     }
 }

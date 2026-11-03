@@ -67,16 +67,18 @@ fun ago(t: Long): String {
 
 @Composable
 fun Thumb(p: Project) {
-    val cp = p.comps[0]
+    val cp = p.comps.firstOrNull()
     Canvas(Modifier.size(64.dp, 36.dp).background(Color.Black)) {
-        cp.layers.forEach { l ->
-            val x = l.p[0].firstOrNull()?.v ?: 0f
-            val y = l.p[1].firstOrNull()?.v ?: 0f
-            val s = l.p[2].firstOrNull()?.v ?: 1f
-            val side = 0.3f * s * size.height
-            val cx = (x + 1f) / 2f * size.width
-            val cy = (1f - (y + 1f) / 2f) * size.height
-            drawRect(Color(l.col), Offset(cx - side / 2, cy - side / 2), Size(side, side))
+        cp?.layers?.forEach { l ->
+            if (l.role == 0 && l.kind < 0) {
+                val x = l.pr[PX].get(0f)
+                val y = l.pr[PY].get(0f)
+                val s = l.pr[SX].get(0f)
+                val side = 0.3f * s * size.height
+                val cx = (x + 1f) / 2f * size.width
+                val cy = (1f - (y + 1f) / 2f) * size.height
+                drawRect(Color(l.col), Offset(cx - side / 2, cy - side / 2), Size(side, side))
+            }
         }
     }
 }
@@ -136,7 +138,7 @@ fun Home(
             Spacer(Modifier.width(6.dp))
             Text("Kinetic", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             Spacer(Modifier.width(6.dp))
-            Mn("File", c, "New composition" to onNew, "New composition from footage..." to onFoot, "Open project..." to onImp)
+            Mn("File", c, "New project" to onNew, "New project from footage..." to onFoot, "Open project..." to onImp)
             Mn("Edit", c, "Preferences..." to onSet)
             Spacer(Modifier.weight(1f))
             Box(Modifier.background(P3, RoundedCornerShape(3.dp)).cur(c) { onSet() }.padding(horizontal = 10.dp, vertical = 3.dp)) {
@@ -156,7 +158,7 @@ fun Home(
                         Text("No projects yet.", color = GR, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
                     }
                     ps.forEach { p ->
-                        val cp = p.comps[0]
+                        val cp = p.comps.firstOrNull()
                         Row(
                             Modifier.fillMaxWidth()
                                 .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
@@ -167,7 +169,7 @@ fun Home(
                             Thumb(p)
                             Column(Modifier.weight(1f)) {
                                 Text(p.name, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${cp.w} x ${cp.h}, ${cp.fps} fps, ${cp.dur.toInt()} s", color = GR, fontSize = 10.sp)
+                                Text(if (cp == null) "Empty project" else "${cp.w} x ${cp.h}, ${cp.fps} fps, ${cp.dur.toInt()} s", color = GR, fontSize = 10.sp)
                             }
                             Text(ago(p.mod), color = GR, fontSize = 10.sp)
                         }
@@ -175,11 +177,11 @@ fun Home(
                     }
                 }
             }
-            Pn("Composition  (none)", false, c, {}, Modifier.weight(1f).fillMaxHeight()) {
+            Pn("Start", false, c, {}, Modifier.weight(1f).fillMaxHeight()) {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        Crd("New Composition", 0, c) { onNew() }
-                        Crd("New Composition\nFrom Footage", 1, c) { onFoot() }
+                        Crd("New Project", 0, c) { onNew() }
+                        Crd("New Project\nFrom Footage", 1, c) { onFoot() }
                     }
                     Spacer(Modifier.height(16.dp))
                     Btn("Open project file", c) { onImp() }
@@ -224,8 +226,8 @@ fun Opt(l: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun NewComp(c: Cur, onClose: () -> Unit, onOk: (Comp) -> Unit) {
-    var nm by remember { mutableStateOf("Comp 1") }
+fun NewComp(c: Cur, defName: String, onClose: () -> Unit, onOk: (Comp) -> Unit) {
+    var nm by remember { mutableStateOf(defName) }
     var w by remember { mutableStateOf("1920") }
     var h by remember { mutableStateOf("1080") }
     var fp by remember { mutableStateOf("30") }
@@ -234,7 +236,7 @@ fun NewComp(c: Cur, onClose: () -> Unit, onOk: (Comp) -> Unit) {
         Btn("Cancel", c) { onClose() }
         Btn("Create", c, true) {
             val cm = Comp(
-                nm.ifBlank { "Comp 1" },
+                nm.ifBlank { defName },
                 (w.toIntOrNull() ?: 1920).coerceIn(16, 8192),
                 (h.toIntOrNull() ?: 1080).coerceIn(16, 8192),
                 (fp.toIntOrNull() ?: 30).coerceIn(1, 120),
@@ -335,7 +337,6 @@ fun Root(st: Settings, c: Cur) {
     val ctx = LocalContext.current
     var ps by remember { mutableStateOf<List<Project>>(emptyList()) }
     var open by remember { mutableStateOf<Project?>(null) }
-    var showNew by remember { mutableStateOf(false) }
     var showSet by remember { mutableStateOf(false) }
     var crash by remember { mutableStateOf<String?>(null) }
     var expP by remember { mutableStateOf<Project?>(null) }
@@ -370,10 +371,12 @@ fun Root(st: Settings, c: Cur) {
                     30,
                     du.coerceIn(1f, 600f)
                 )
-                val p = Project(pid, cm.name, 0L, mutableListOf(cm))
+                val p = Project(pid, cm.name, 0L)
                 p.media.addAll(ms)
+                p.addComp(cm)
                 ms.forEach { cm.addMedia(it) }
                 cm.sel = 0
+                p.clearUndo()
                 open = p
                 Store.saveA(ctx, p)
                 reload()
@@ -416,11 +419,10 @@ fun Root(st: Settings, c: Cur) {
             reload()
         }
     }
-    BackHandler(open != null || showSet || showNew || c.menu != null) {
+    BackHandler(open != null || showSet || c.menu != null) {
         when {
             c.menu != null -> c.menu = null
             showSet -> showSet = false
-            showNew -> showNew = false
             else -> close()
         }
     }
@@ -431,7 +433,14 @@ fun Root(st: Settings, c: Cur) {
                 Home(
                     c, ps,
                     onOpen = { open = it },
-                    onNew = { showNew = true },
+                    onNew = {
+                        val q = Project.empty()
+                        open = q
+                        scope.launch {
+                            Store.saveA(ctx, q)
+                            reload()
+                        }
+                    },
                     onFoot = { foot.launch(arrayOf("video/*", "audio/*", "image/*")) },
                     onImp = { imp.launch(arrayOf("*/*")) },
                     onSet = { showSet = true },
@@ -453,16 +462,7 @@ fun Root(st: Settings, c: Cur) {
                     }
                 )
             } else {
-                Editor(o, c, onBack = { close() }, onSet = { showSet = true })
-            }
-            if (showNew) NewComp(c, { showNew = false }) { cm ->
-                showNew = false
-                val p = Project.create(cm)
-                open = p
-                scope.launch {
-                    Store.saveA(ctx, p)
-                    reload()
-                }
+                key(o.id) { Editor(o, c, onBack = { close() }, onSet = { showSet = true }) }
             }
             if (showSet) Prefs(st, c) { showSet = false }
             val cr = crash

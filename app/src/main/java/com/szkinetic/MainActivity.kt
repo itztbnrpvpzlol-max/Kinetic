@@ -1,9 +1,13 @@
 package com.szkinetic
 
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     lateinit var st: Settings
@@ -11,9 +15,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= 28) {
+            val lp = window.attributes
+            lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = lp
+        }
+        hideBars()
         st = Settings(this)
         cur = Cur(st)
         setContent { App(st, cur) }
+    }
+
+    private fun hideBars() {
+        val c = WindowCompat.getInsetsController(window, window.decorView)
+        c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        c.hide(WindowInsetsCompat.Type.systemBars())
+    }
+
+    override fun onWindowFocusChanged(f: Boolean) {
+        super.onWindowFocusChanged(f)
+        if (f) hideBars()
     }
 
     private fun vb(k: Int): Int {

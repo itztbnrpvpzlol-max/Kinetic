@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -38,7 +39,9 @@ class Hit(
     var rc: ((Offset) -> Unit)?,
     var sc: ((Float) -> Unit)?,
     val z: Int
-)
+) {
+    var ds: ((Offset) -> Unit)? = null
+}
 
 class Cur(val st: Settings) {
     var on: Boolean
@@ -101,6 +104,7 @@ fun Modifier.cur(
     drag: ((Offset) -> Unit)? = null,
     rc: ((Offset) -> Unit)? = null,
     sc: ((Float) -> Unit)? = null,
+    ds: ((Offset) -> Unit)? = null,
     click: (Offset) -> Unit = {}
 ): Modifier = composed {
     val z = LocalZ.current
@@ -109,6 +113,7 @@ fun Modifier.cur(
     h.drag = drag
     h.rc = rc
     h.sc = sc
+    h.ds = ds
     DisposableEffect(h) {
         c.hits.add(h)
         onDispose { c.hits.remove(h) }
@@ -118,7 +123,7 @@ fun Modifier.cur(
             detectTapGestures(onLongPress = { h.rc?.invoke(h.r.topLeft + it) }, onTap = { h.click(it) })
         }
         .pointerInput(Unit) {
-            if (h.drag != null) detectDragGestures { ch, _ ->
+            if (h.drag != null) detectDragGestures(onDragStart = { h.ds?.invoke(it) }) { ch, _ ->
                 ch.consume()
                 h.drag?.invoke(ch.position)
             }
@@ -141,6 +146,21 @@ fun Chip(t: String, a: Boolean, f: () -> Unit) {
     Box(Modifier.background(if (a) AC else P3, RoundedCornerShape(16.dp)).clickable { f() }.padding(horizontal = 14.dp, vertical = 8.dp)) {
         Text(t, color = Color.White, fontSize = 12.sp)
     }
+}
+
+fun DrawScope.arrow(p: Offset, k: Float) {
+    val a = Path().apply {
+        moveTo(p.x, p.y)
+        lineTo(p.x, p.y + 34f * k)
+        lineTo(p.x + 9f * k, p.y + 26f * k)
+        lineTo(p.x + 15f * k, p.y + 40f * k)
+        lineTo(p.x + 21f * k, p.y + 37f * k)
+        lineTo(p.x + 15f * k, p.y + 24f * k)
+        lineTo(p.x + 26f * k, p.y + 24f * k)
+        close()
+    }
+    drawPath(a, Color.White)
+    drawPath(a, Color.Black, style = Stroke(maxOf(2f * k, 1.5f)))
 }
 
 @Composable
@@ -169,20 +189,9 @@ fun CursorLayer(c: Cur) {
         }
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val p = c.pos
-            val a = Path().apply {
-                moveTo(p.x, p.y)
-                lineTo(p.x, p.y + 34f)
-                lineTo(p.x + 9f, p.y + 26f)
-                lineTo(p.x + 15f, p.y + 40f)
-                lineTo(p.x + 21f, p.y + 37f)
-                lineTo(p.x + 15f, p.y + 24f)
-                lineTo(p.x + 26f, p.y + 24f)
-                close()
-            }
-            drawPath(a, Color.White)
-            drawPath(a, Color.Black, style = Stroke(2f))
-            if (c.slow) drawCircle(Color(0x662D8CEB), 40f, p)
+            val k = c.st.csize
+            arrow(c.pos, k)
+            if (c.slow) drawCircle(Color(0x662D8CEB), 40f * k, c.pos)
         }
         Row(Modifier.align(Alignment.BottomEnd).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("Slow", c.slow) { c.slow = !c.slow }

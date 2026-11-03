@@ -19,19 +19,28 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
 val PRE = listOf(
     Triple("HD 1080", 1920, 1080),
@@ -69,74 +78,107 @@ fun Thumb(p: Project) {
 }
 
 @Composable
+fun Crd(t: String, k: Int, c: Cur, f: () -> Unit) {
+    Column(
+        Modifier.size(128.dp).background(Color(0xFF1B1B1B), RoundedCornerShape(4.dp))
+            .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(4.dp)).cur(c) { f() },
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Canvas(Modifier.size(72.dp, 54.dp)) {
+            val g = Color(0xFF9A9AB0)
+            val sw = Stroke(2.dp.toPx())
+            val cr = CornerRadius(3.dp.toPx())
+            val sz = Size(58.dp.toPx(), 42.dp.toPx())
+            if (k == 1) drawRoundRect(g.copy(alpha = 0.5f), Offset(12.dp.toPx(), 0f), sz, cr, sw)
+            val tl = Offset(0f, if (k == 1) 10.dp.toPx() else 6.dp.toPx())
+            drawRoundRect(Color(0xFF1B1B1B), tl, sz, cr)
+            drawRoundRect(g, tl, sz, cr, sw)
+            val cx = tl.x + sz.width * 0.5f
+            val cy = tl.y + sz.height * 0.5f
+            val tp = Path().apply {
+                moveTo(cx - 16.dp.toPx(), cy + 10.dp.toPx())
+                lineTo(cx - 6.dp.toPx(), cy - 10.dp.toPx())
+                lineTo(cx + 2.dp.toPx(), cy + 10.dp.toPx())
+                close()
+            }
+            drawPath(tp, g, style = sw)
+            drawCircle(g, 7.dp.toPx(), Offset(cx + 10.dp.toPx(), cy - 4.dp.toPx()), style = sw)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(t, color = Color(0xFFBDBDBD), fontSize = 11.sp, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
 fun Home(
     c: Cur,
     ps: List<Project>,
     onOpen: (Project) -> Unit,
     onNew: () -> Unit,
+    onFoot: () -> Unit,
     onImp: () -> Unit,
     onSet: () -> Unit,
     onDel: (Project) -> Unit,
     onDup: (Project) -> Unit,
     onExp: (Project) -> Unit
 ) {
-    Row(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.width(150.dp).fillMaxHeight().background(Color(0xFF181818)).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(28.dp).background(LAV, RoundedCornerShape(5.dp)), Alignment.Center) {
-                    Text("Ki", color = Color(0xFF1A1A1A), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-                Text("Kinetic", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    Column(Modifier.fillMaxSize().background(BG)) {
+        Row(Modifier.fillMaxWidth().height(28.dp).background(Color(0xFF1F1F1F)), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.size(18.dp).background(LAV, RoundedCornerShape(4.dp)), Alignment.Center) {
+                Text("Ki", color = Color(0xFF1A1A1A), fontWeight = FontWeight.Bold, fontSize = 9.sp)
             }
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().background(P3, RoundedCornerShape(4.dp)).padding(8.dp)) {
-                Text("Home", color = Color.White, fontSize = 13.sp)
+            Spacer(Modifier.width(6.dp))
+            Text("Kinetic", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Spacer(Modifier.width(6.dp))
+            Mn("File", c, "New composition" to onNew, "New composition from footage..." to onFoot, "Open project..." to onImp)
+            Mn("Edit", c, "Preferences..." to onSet)
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.background(P3, RoundedCornerShape(3.dp)).cur(c) { onSet() }.padding(horizontal = 10.dp, vertical = 3.dp)) {
+                Text("Preferences", color = Color.White, fontSize = 11.sp)
             }
-            Box(Modifier.fillMaxWidth().cur(c) { onSet() }.padding(8.dp)) {
-                Text("Preferences", color = GR, fontSize = 13.sp)
-            }
+            Spacer(Modifier.width(6.dp))
         }
-        Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 24.dp, vertical = 16.dp)) {
-            Text("Home", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Btn("New composition", c, true, true) { onNew() }
-                Btn("Import project", c, false, true) { onImp() }
-            }
-            Spacer(Modifier.height(18.dp))
-            Text("Recent projects", color = GR, fontSize = 12.sp)
-            Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(P3))
-            val rs = rememberScrollState()
-            Column(Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs)) {
-                if (ps.isEmpty()) {
-                    Text(
-                        "No projects yet. Create a composition or import a project.",
-                        color = GR,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 16.dp)
-                    )
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            Pn("Project", true, c, {}, Modifier.width(300.dp).fillMaxHeight()) {
+                Row(Modifier.fillMaxWidth().background(HD).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                    Text("Recent projects", color = GR, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Text("Modified", color = GR, fontSize = 10.sp)
                 }
-                ps.forEach { p ->
-                    val cp = p.comps[0]
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Thumb(p)
-                        Column(Modifier.weight(1f)) {
-                            Text(p.name, color = Color.White, fontSize = 14.sp)
-                            Text("${cp.w} x ${cp.h}, ${cp.fps} fps, ${cp.dur.toInt()} s", color = GR, fontSize = 11.sp)
-                        }
-                        Text(ago(p.mod), color = GR, fontSize = 11.sp)
+                val rs = rememberScrollState()
+                Column(Modifier.weight(1f).fillMaxWidth().scr(c) { rs.dispatchRawDelta(-it) }.verticalScroll(rs)) {
+                    if (ps.isEmpty()) {
+                        Text("No projects yet.", color = GR, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
                     }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF2A2A2A)))
+                    ps.forEach { p ->
+                        val cp = p.comps[0]
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Thumb(p)
+                            Column(Modifier.weight(1f)) {
+                                Text(p.name, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${cp.w} x ${cp.h}, ${cp.fps} fps, ${cp.dur.toInt()} s", color = GR, fontSize = 10.sp)
+                            }
+                            Text(ago(p.mod), color = GR, fontSize = 10.sp)
+                        }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF2A2A2A)))
+                    }
+                }
+            }
+            Pn("Composition  (none)", false, c, {}, Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                        Crd("New Composition", 0, c) { onNew() }
+                        Crd("New Composition\nFrom Footage", 1, c) { onFoot() }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Btn("Open project file", c) { onImp() }
                 }
             }
         }
@@ -240,6 +282,12 @@ fun Prefs(st: Settings, c: Cur, onClose: () -> Unit) {
         Text("Cursor", color = LAV, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Opt("Virtual cursor") { Tgl(st.cursor, c) { st.cursor = it; st.save() } }
         Opt("Cursor speed") { Sld(st.speed, 0.5f, 4f, c) { st.speed = it; st.save() } }
+        Opt("Cursor size") {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Canvas(Modifier.size(52.dp).background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))) { arrow(Offset(10f, 6f), st.csize) }
+                Sld(st.csize, 0.5f, 3f, c, 110.dp) { st.csize = it; st.save() }
+            }
+        }
         Text("Volume buttons", color = LAV, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Opt("Use as mouse buttons") { Tgl(st.vol, c) { st.vol = it; st.save() } }
         Opt("Volume up") { Seg(BT, st.up, c) { st.up = it; st.save() } }
@@ -260,8 +308,9 @@ fun MenuView(c: Cur) {
     val m = c.menu ?: return
     CompositionLocalProvider(LocalZ provides 2) {
         Box(Modifier.fillMaxSize().cur(c) { c.menu = null }) {
-            val x = m.pos.x.coerceIn(0f, maxOf(c.sz.width - 450f, 0f))
-            val y = m.pos.y.coerceIn(0f, maxOf(c.sz.height - 130f * m.items.size, 0f))
+            val dn = LocalDensity.current
+            val x = m.pos.x.coerceIn(0f, maxOf(c.sz.width - with(dn) { 150.dp.toPx() }, 0f))
+            val y = m.pos.y.coerceIn(0f, maxOf(c.sz.height - with(dn) { 36.dp.toPx() } * m.items.size, 0f))
             Column(
                 Modifier.offset { IntOffset(x.toInt(), y.toInt()) }.width(150.dp)
                     .background(Color(0xFF2E2E2E), RoundedCornerShape(4.dp)).border(1.dp, Color(0xFF4A4A4A), RoundedCornerShape(4.dp))
@@ -284,6 +333,37 @@ fun Root(st: Settings, c: Cur) {
     var showNew by remember { mutableStateOf(false) }
     var showSet by remember { mutableStateOf(false) }
     var expP by remember { mutableStateOf<Project?>(null) }
+    val scope = rememberCoroutineScope()
+    val foot = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { us: List<Uri> ->
+        if (us.isNotEmpty()) scope.launch {
+            val pid = UUID.randomUUID().toString()
+            val ms = withContext(Dispatchers.IO) { us.mapNotNull { Store.importMedia(ctx, pid, it) } }
+            if (ms.isEmpty()) {
+                Toast.makeText(ctx, "Nothing could be imported", Toast.LENGTH_SHORT).show()
+            } else {
+                val f = ms.first()
+                val vis = ms.firstOrNull { it.kind != 2 }
+                val du = when (f.kind) {
+                    0 -> 5f
+                    else -> f.dur
+                }
+                val cm = Comp(
+                    f.name.substringBeforeLast('.'),
+                    (vis?.w ?: 1920).coerceIn(16, 8192),
+                    (vis?.h ?: 1080).coerceIn(16, 8192),
+                    30,
+                    du.coerceIn(1f, 600f)
+                )
+                val p = Project(pid, cm.name, 0L, mutableListOf(cm))
+                p.media.addAll(ms)
+                ms.forEach { cm.addMedia(it) }
+                cm.sel = 0
+                Store.save(ctx, p)
+                ps = Store.list(ctx)
+                open = p
+            }
+        }
+    }
     val imp = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
         if (u != null) {
             val p = Store.imp(ctx, u)
@@ -326,6 +406,7 @@ fun Root(st: Settings, c: Cur) {
                     c, ps,
                     onOpen = { open = it },
                     onNew = { showNew = true },
+                    onFoot = { foot.launch(arrayOf("video/*", "audio/*", "image/*")) },
                     onImp = { imp.launch(arrayOf("*/*")) },
                     onSet = { showSet = true },
                     onDel = {

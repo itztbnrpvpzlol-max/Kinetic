@@ -579,51 +579,6 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         pickLayer(at, false)
     }
 
-    // Collapse the currently selected layers into a real nested composition.
-    // Layer timing is shifted into the child comp; the parent keeps the original start.
-    fun precomposeSelected(name: String = "Pre-comp"): Boolean {
-        val chosen = layers.filter { it.pick }
-        if (chosen.isEmpty()) return false
-        val owner = proj ?: return false
-        if (chosen.size == layers.size && layers.size == 1) return false
-
-        mark()
-        val first = layers.indexOf(chosen.first())
-        val startAt = chosen.minOf { it.start }
-        val endAt = chosen.maxOf { it.end(dur) }
-        val childDuration = (endAt - startAt).coerceAtLeast(1f)
-        val child = Comp(name, w, h, fps, childDuration)
-        child.lib = lib
-        child.proj = owner
-
-        val uidMap = chosen.associate { it.uid to UUID.randomUUID().toString().take(8) }
-        chosen.forEach { source ->
-            val copy = source.copy()
-            copy.uid = uidMap[source.uid] ?: copy.uid
-            copy.start = (source.start - startAt).coerceAtLeast(0f)
-            copy.len = source.len.coerceAtMost(childDuration)
-            copy.parent = uidMap[source.parent] ?: ""
-            child.layers.add(copy)
-        }
-
-        val pre = Layer(name, 0xFF9C8FDB, 0f, 0f, 1f, 0f)
-        pre.preCompId = child.id
-        pre.start = startAt.coerceAtLeast(0f)
-        pre.len = childDuration
-        pre.off = 0f
-        pre.lcol = 0xFF9C8FDB
-        pre.open = false
-
-        // External children that referenced a collapsed layer now follow the pre-comp layer.
-        val removedIds = chosen.map { it.uid }.toSet()
-        layers.filter { it !in chosen && it.parent in removedIds }.forEach { it.parent = pre.uid }
-        layers.removeAll(chosen.toSet())
-        layers.add(first.coerceIn(0, layers.size), pre)
-        owner.addComp(child)
-        pickLayer(layers.indexOf(pre), false)
-        return true
-    }
-
     fun add() {
         val n = layers.count { it.role == 0 && it.kind < 0 } + 1
         addLayer(Layer("Shape $n", COLS[n % COLS.size], 0f, 0f, 1f, 0f))

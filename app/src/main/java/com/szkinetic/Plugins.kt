@@ -39,7 +39,8 @@ fun PluginsPanel(comp: Comp?, c: Cur, m: Modifier) {
     val presets = remember(ctx) { loadPresets(ctx).toMutableStateList() }
     val effects = remember { RenderEffects.all }
 
-    LaunchedEffect(Unit) { PluginRegistry.bootstrap() }
+    LaunchedEffect(Unit) { PluginRegistry.bootstrap(); refresh++ }
+    val installedPlugins = remember(refresh) { PluginRegistry.all() }
 
     Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -52,7 +53,7 @@ fun PluginsPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
 
         Text("INSTALLED PLUGINS", color = DIM, fontSize = 9.sp)
-        PluginRegistry.all().forEach { entry ->
+        installedPlugins.forEach { entry ->
             Column(
                 Modifier.fillMaxWidth().background(Color(0xFF292929), RoundedCornerShape(4.dp))
                     .border(1.dp, Color(0xFF414141), RoundedCornerShape(4.dp)).padding(8.dp),
@@ -83,7 +84,7 @@ fun PluginsPanel(comp: Comp?, c: Cur, m: Modifier) {
                         }
                     }
                 }
-                entry.effects.forEach { (effect) ->
+                entry.effects.forEach { effect ->
                     FlatBtn("Apply ${effect.name}", c) {
                         try {
                             PluginRegistry.context(comp, entry.grantedPermissions)

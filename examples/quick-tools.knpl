@@ -1,0 +1,38 @@
+{
+  "format": "KNPL",
+  "formatVersion": 1,
+  "manifest": {
+    "id": "community.example.quicktools",
+    "name": "Quick Tools",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "author": "Kinetic Community",
+    "description": "Example community plugin with safe built-in actions.",
+    "permissions": ["layer.create", "effect.apply"]
+  },
+  "actions": [
+    {
+      "id": "add-null",
+      "title": "Create Null",
+      "description": "Adds a controller layer.",
+      "type": "create_null",
+      "layerName": "Community Null"
+    },
+    {
+      "id": "contrast",
+      "title": "Apply Contrast",
+      "type": "apply_effect",
+      "effectId": 2,
+      "amount": 0.68
+    }
+  ],
+  "effects": [
+    {
+      "id": "quick-contrast",
+      "name": "Quick Contrast",
+      "description": "A reusable contrast effect.",
+      "renderEffectId": 2,
+      "defaultAmount": 0.68
+    }
+  ]
+}

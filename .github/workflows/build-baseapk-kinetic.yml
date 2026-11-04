@@ -32,7 +32,7 @@ jobs:
           test -f decompiled/apktool/smali/com/angkin/keyflow/MainActivity.smali
       - name: Install apktool
         run: |
-          curl -L --fail -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          curl -L --fail -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar
       - name: Apply Kinetic home UI patch
         run: |
           mkdir -p decompiled/apktool/res/layout decompiled/apktool/res/drawable decompiled/apktool/res/values

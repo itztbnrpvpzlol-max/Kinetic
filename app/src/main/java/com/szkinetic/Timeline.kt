@@ -557,9 +557,8 @@ private fun spatialHandle(layer: Layer, index: Int, outgoing: Boolean): SpatialH
     val py = layer.pr[PY]
     val k = px.k
     val f = k[index]
-    if (f.spatialManual) {
-        return if (outgoing) SpatialHandle(f.sox, f.soy) else SpatialHandle(f.six, f.siy)
-    }
+    if (outgoing && f.spatialOutManual) return SpatialHandle(f.sox, f.soy)
+    if (!outgoing && f.spatialInManual) return SpatialHandle(f.six, f.siy)
     val prev = k[(index - 1).coerceAtLeast(0)]
     val next = k[(index + 1).coerceAtMost(k.lastIndex)]
     val dx = (next.v - prev.v) / 6f
@@ -624,9 +623,9 @@ private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifi
                         val base = points[dragIndex]
                         val f = keys[dragIndex]
                         keys[dragIndex] = if (dragSide == 1) f.copy(
-                            spatialManual = true, sox = wx - base.first, soy = wy - base.second
+                            spatialOutManual = true, sox = wx - base.first, soy = wy - base.second
                         ) else f.copy(
-                            spatialManual = true, six = wx - base.first, siy = wy - base.second
+                            spatialInManual = true, six = wx - base.first, siy = wy - base.second
                         )
                     }
                 },

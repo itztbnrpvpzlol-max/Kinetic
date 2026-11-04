@@ -314,7 +314,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 ToolIc(5, false, c) { note("Camera tool is not available yet") }
                 Spacer(Modifier.width(6.dp))
                 ToolIc(6, false, c) { comp?.add(); Unit }
-                ToolIc(7, false, c) { note("Pen tool is not available yet") }
+                ToolIc(7, tool == 3, c) { tool = 3 }
                 ToolIc(8, false, c) { note("Text tool is not available yet") }
                 ToolIc(9, false, c) { note("Brush tool is not available yet") }
                 ToolIc(10, false, c) { note("Eraser tool is not available yet") }

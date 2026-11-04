@@ -193,6 +193,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 Box(mod, Alignment.Center) { Text("No composition", color = DIM, fontSize = 11.sp) }
             }
             "info" -> InfoPanel(comp, c, mod)
+            "browser" -> EffectsBrowserPanel(c, mod)
             else -> InfoPanel(comp, c, mod)
         }
     }

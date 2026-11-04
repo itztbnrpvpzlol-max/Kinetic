@@ -363,6 +363,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.pathBitmap = pathBitmap
         q.effectId = effectId
         q.effectAmount = effectAmount
+        q.effects.addAll(effects)
         q.parent = parent
         for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
         q.mid = mid
@@ -395,6 +396,9 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         o.put("pathClosed", pathClosed)
         o.put("fx", effectId)
         o.put("fa", effectAmount.toDouble())
+        val fx = JSONArray()
+        for (effect in effects) fx.put(JSONArray().put(effect.id).put(effect.amount.toDouble()))
+        o.put("fxs", fx)
         val a = JSONArray()
         for (p in pr) a.put(p.js())
         o.put("pr", a)
@@ -431,6 +435,14 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
             l.pathClosed = o.optBoolean("pathClosed", true)
             l.effectId = o.optInt("fx", 0).coerceIn(0, 16)
             l.effectAmount = o.optDouble("fa", 0.5).toFloat().coerceIn(0f, 1f)
+            val fxs = o.optJSONArray("fxs")
+            if (fxs != null) for (i in 0 until minOf(fxs.length(), MAX_LAYER_EFFECTS)) {
+                val pair = fxs.optJSONArray(i) ?: continue
+                val id = pair.optInt(0, 0)
+                if (pair.length() >= 2 && id in 1..16) {
+                    l.effects.add(LayerEffect(id, pair.optDouble(1, 0.5).toFloat().coerceIn(0f, 1f)))
+                }
+            }
             val pa = o.optJSONArray("pr")
             if (pa != null) {
                 for (i in 0 until minOf(pa.length(), NCH)) l.pr[i].load(pa.getJSONObject(i))
@@ -1078,6 +1090,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             out[o + 11] = data[offset + 11]
             out[o + 12] = data[offset + 12]
             out[o + 13] = data[offset + 13]
+            for (k in 14 until STR) out[o + k] = data[offset + k]
             bitmaps[count] = bm
             count++
         }
@@ -1149,8 +1162,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             item[9] = op
             item[10] = ex
             item[11] = ey
-            item[12] = l.effectId.toFloat()
-            item[13] = l.effectAmount
+            val stack = l.renderEffects()
+            for (j in 0 until MAX_LAYER_EFFECTS) {
+                val effect = stack.getOrNull(j)
+                item[14 + j] = effect?.id?.toFloat() ?: 0f
+                item[14 + MAX_LAYER_EFFECTS + j] = effect?.amount ?: 0f
+            }
+            item[12] = stack.firstOrNull()?.id?.toFloat() ?: 0f
+            item[13] = stack.firstOrNull()?.amount ?: 0f
             append(item, 0, bm)
         }
         return Frame(out.copyOf(count * STR), bitmaps.copyOf(count))

@@ -743,6 +743,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         }
     var loop by mutableStateOf(true)
     var sel by mutableStateOf(0)
+    var cameraEnabled by mutableStateOf(false)
+    var cameraX by mutableStateOf(0f)
+    var cameraY by mutableStateOf(0f)
+    var cameraDistance by mutableStateOf(3f)
+    var cameraFov by mutableStateOf(50f)
 
     fun mark() {
         renderRevision++
@@ -1199,8 +1204,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             if (pw == null) return null
         }
         val position = l.position(t)
-        var tx = position.first * asp
-        var ty = position.second
+        var tx = (position.first - if (l.is3d && cameraEnabled) cameraX else 0f) * asp
+        var ty = position.second - if (l.is3d && cameraEnabled) cameraY else 0f
         var sx = l.gv(SX, t)
         var sy = l.gv(SY, t)
         val r = Math.toRadians(l.gv(RT, t).toDouble())
@@ -1214,9 +1219,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         var d = sy
         if (l.is3d) {
             // Orthographic projection of an Euler-rotated layer plane with depth perspective.
-            val depth = 1f + l.gv(PZ, t)
+            val distance = if (cameraEnabled) cameraDistance.coerceIn(0.25f, 100f) else 1f
+            val depth = distance + l.gv(PZ, t)
             if (depth <= 0.05f) return null
-            val persp = 1f / depth
+            val fovScale = if (cameraEnabled) kotlin.math.tan(Math.toRadians(25.0)).toFloat() / kotlin.math.tan(Math.toRadians(cameraFov.coerceIn(15f, 100f).toDouble() / 2.0)).toFloat() else 1f
+            val persp = distance / depth * fovScale
             val cx = cos(rx).toFloat()
             val sxr = sin(rx).toFloat()
             val cy = cos(ry).toFloat()
@@ -1438,6 +1445,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         o.put("h", h)
         o.put("f", fps)
         o.put("d", dur.toDouble())
+        o.put("camOn", cameraEnabled)
+        o.put("camX", cameraX.toDouble())
+        o.put("camY", cameraY.toDouble())
+        o.put("camDistance", cameraDistance.toDouble())
+        o.put("camFov", cameraFov.toDouble())
         val a = JSONArray()
         for (l in layers) a.put(l.js())
         o.put("l", a)
@@ -1453,6 +1465,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         fun fromJs(o: JSONObject): Comp {
             val c = Comp(o.getString("n"), o.getInt("w"), o.getInt("h"), o.getInt("f"), o.getDouble("d").toFloat())
             c.id = o.optString("ci", c.id)
+            c.cameraEnabled = o.optBoolean("camOn", false)
+            c.cameraX = o.optDouble("camX", 0.0).toFloat().coerceIn(-10f, 10f)
+            c.cameraY = o.optDouble("camY", 0.0).toFloat().coerceIn(-10f, 10f)
+            c.cameraDistance = o.optDouble("camDistance", 3.0).toFloat().coerceIn(0.25f, 100f)
+            c.cameraFov = o.optDouble("camFov", 50.0).toFloat().coerceIn(15f, 100f)
             val ma = o.optJSONArray("mk")
             if (ma != null) for (i in 0 until ma.length()) {
                 val marker = ma.getJSONObject(i)

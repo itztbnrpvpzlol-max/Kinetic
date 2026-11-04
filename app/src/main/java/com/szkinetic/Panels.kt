@@ -393,7 +393,12 @@ fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
         } else {
             val md = comp.lib.firstOrNull { it.id == l.mid }
             Text(l.name, color = Color.White, fontSize = AE_FONT, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Kv("Type", when (l.role) { 1 -> "Null"; else -> if (l.kind < 0) "Shape" else KN[l.kind] })
+            Kv("Type", when {
+                l.preCompId.isNotEmpty() -> "Pre-comp"
+                l.role == 1 -> "Null"
+                l.kind < 0 -> "Shape"
+                else -> KN[l.kind]
+            })
             Kv("Parent", comp.layerOf(l.parent)?.name ?: "None")
             Kv("In", aeTc((l.start * comp.fps).toInt(), comp.fps))
             Kv("Out", aeTc((l.end(comp.dur) * comp.fps).toInt(), comp.fps))

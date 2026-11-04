@@ -473,25 +473,21 @@ fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
 }
 
 
-// ---------------------------------------------------------------- Effects & Presets browser (catalog shell; effect implementations are intentionally deferred)
+// ---------------------------------------------------------------- Effects & Presets browser
 @Composable
 fun EffectsBrowserPanel(c: Cur, m: Modifier) {
     var query by remember { mutableStateOf("") }
-    val groups = listOf(
-        "Animation Presets",
-        "Blur & Sharpen",
-        "Color Correction",
-        "Distortion",
-        "Generate",
-        "Keying",
-        "Matte & Mask",
-        "Perspective",
-        "Simulation",
-        "Stylize",
-        "Time"
-    )
-    val visible = groups.filter { it.contains(query.trim(), ignoreCase = true) }
-    Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    var expanded by remember { mutableStateOf("Blur & Sharpen") }
+    val q = query.trim()
+    val visibleCategories = EffectCatalog.categories.mapNotNull { category ->
+        val matches = if (q.isEmpty()) category.effects else category.effects.filter {
+            it.name.contains(q, ignoreCase = true) ||
+                it.description.contains(q, ignoreCase = true) ||
+                category.name.contains(q, ignoreCase = true)
+        }
+        if (matches.isEmpty()) null else category to matches
+    }
+    Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(
             Modifier.fillMaxWidth().height(30.dp).background(Color(0xFF171717), RoundedCornerShape(3.dp))
                 .border(1.dp, EDG, RoundedCornerShape(3.dp)).padding(horizontal = 8.dp),
@@ -508,7 +504,7 @@ fun EffectsBrowserPanel(c: Cur, m: Modifier) {
                 cursorBrush = SolidColor(AC),
                 decorationBox = { inner ->
                     Box(Modifier.fillMaxSize(), Alignment.CenterStart) {
-                        if (query.isEmpty()) Text("Search effects & presets", color = DIM, fontSize = 11.sp)
+                        if (query.isEmpty()) Text("Search 500 effects", color = DIM, fontSize = 11.sp)
                         inner()
                     }
                 }
@@ -517,27 +513,51 @@ fun EffectsBrowserPanel(c: Cur, m: Modifier) {
                 Text("×", color = DIM, fontSize = 15.sp, modifier = Modifier.cur(c) { query = "" }.padding(horizontal = 3.dp))
             }
         }
-        Text("BROWSE CATEGORIES", color = DIM, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("EFFECTS LIBRARY", color = DIM, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text("${EffectCatalog.all.size} effects  •  ${EffectCatalog.categories.size} categories", color = VB, fontSize = 9.sp)
+        }
         Column(Modifier.weight(1f).fillMaxWidth().then(Modifier.vscr(c, rememberScrollState()))) {
-            if (visible.isEmpty()) {
-                Text("No matching categories", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
+            if (visibleCategories.isEmpty()) {
+                Text("No matching effects", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
             } else {
-                visible.forEach { category ->
+                visibleCategories.forEach { (category, matches) ->
+                    val isExpanded = q.isNotEmpty() || expanded == category.name
                     Row(
-                        Modifier.fillMaxWidth().height(29.dp).border(0.5.dp, Color(0xFF343434), RoundedCornerShape(2.dp))
-                            .background(Color(0xFF292929)).padding(horizontal = 8.dp),
+                        Modifier.fillMaxWidth().height(31.dp)
+                            .border(0.5.dp, Color(0xFF343434), RoundedCornerShape(2.dp))
+                            .background(if (isExpanded) Color(0xFF343B46) else Color(0xFF292929))
+                            .cur(c) { expanded = if (expanded == category.name) "" else category.name }
+                            .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("▸", color = DIM, fontSize = 10.sp)
+                        Text(if (isExpanded) "▾" else "▸", color = VB, fontSize = 10.sp)
                         Spacer(Modifier.width(7.dp))
-                        Text(category, color = TXT, fontSize = 10.sp)
+                        Text(category.name, color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                        Text("${matches.size}", color = DIM, fontSize = 9.sp)
+                    }
+                    if (isExpanded) {
+                        matches.forEach { effect ->
+                            Row(
+                                Modifier.fillMaxWidth().height(27.dp)
+                                    .background(Color(0xFF202020))
+                                    .padding(start = 25.dp, end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(Modifier.size(5.dp).background(AC, RoundedCornerShape(1.dp)))
+                                Spacer(Modifier.width(8.dp))
+                                Text(effect.name, color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                Text("FX", color = DIM, fontSize = 8.sp)
+                            }
+                        }
                     }
                 }
             }
         }
         Box(Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp)) {
             Text(
-                "Effect tools are being developed separately. This panel is the browser shell for now.",
+                "500 searchable effect entries are now catalogued. This is the browser catalogue; effect rendering and editable parameter controls still need to be implemented per effect.",
                 color = DIM,
                 fontSize = 9.sp
             )

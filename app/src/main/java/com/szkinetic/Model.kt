@@ -719,12 +719,14 @@ data class CompMarker(val time: Float, val label: String, val color: Long = 0xFF
 data class PathPoint(val x: Float, val y: Float)
 data class TrackSample(val time: Float, val x: Float, val y: Float, val confidence: Float)
 data class MaskShape(val points: List<PathPoint>, val feather: Float = 0f, val opacity: Float = 1f, val inverted: Boolean = false, val enabled: Boolean = true)
+data class SceneLight(val id: String = UUID.randomUUID().toString().take(8), val name: String, val type: Int, val x: Float = 0f, val y: Float = 0f, val z: Float = 1f, val azimuth: Float = -35f, val elevation: Float = 55f, val intensity: Float = 0.85f)
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
     var name by mutableStateOf(n)
     val layers = mutableStateListOf<Layer>()
     val markers = mutableStateListOf<CompMarker>()
+    val lights = mutableStateListOf<SceneLight>()
     var lib: List<Media> = emptyList()
     var proj: Project? = null
     var onOpenComp: ((String) -> Unit)? = null
@@ -1433,16 +1435,47 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             if (l.is3d && lightingEnabled) {
                 val rx = Math.toRadians(l.gv(RX, t).toDouble())
                 val ry = Math.toRadians(l.gv(RY, t).toDouble())
-                val az = Math.toRadians(lightAzimuth.toDouble())
-                val el = Math.toRadians(lightElevation.coerceIn(-89f, 89f).toDouble())
                 val nx = sin(ry).toFloat()
                 val ny = (-sin(rx) * cos(ry)).toFloat()
                 val nz = (cos(rx) * cos(ry)).toFloat()
-                val lx = (cos(el) * cos(az)).toFloat()
-                val ly = (cos(el) * sin(az)).toFloat()
-                val lz = sin(el).toFloat()
-                val diffuse = maxOf(0f, nx * lx + ny * ly + nz * lz)
-                item[30] = (ambientLight + lightIntensity * diffuse).coerceIn(0f, 1.8f)
+                var illumination = ambientLight
+                if (lights.isEmpty()) {
+                    val az = Math.toRadians(lightAzimuth.toDouble())
+                    val el = Math.toRadians(lightElevation.coerceIn(-89f, 89f).toDouble())
+                    val lx = (cos(el) * cos(az)).toFloat()
+                    val ly = (cos(el) * sin(az)).toFloat()
+                    val lz = sin(el).toFloat()
+                    illumination += lightIntensity * maxOf(0f, nx * lx + ny * ly + nz * lz)
+                } else {
+                    for (light in lights) {
+                        val lx: Float
+                        val ly: Float
+                        val lz: Float
+                        val strength: Float
+                        if (light.type == 0) {
+                            val az = Math.toRadians(light.azimuth.toDouble())
+                            val el = Math.toRadians(light.elevation.coerceIn(-89f, 89f).toDouble())
+                            lx = (cos(el) * cos(az)).toFloat()
+                            ly = (cos(el) * sin(az)).toFloat()
+                            lz = sin(el).toFloat()
+                            strength = light.intensity
+                        } else {
+                            val px = l.position(t).first
+                            val py = l.position(t).second
+                            val dx = light.x - px
+                            val dy = light.y - py
+                            val dz = light.z - l.gv(PZ, t)
+                            val distanceSq = dx * dx + dy * dy + dz * dz
+                            val distance = kotlin.math.sqrt(distanceSq).coerceAtLeast(0.001f)
+                            lx = dx / distance
+                            ly = dy / distance
+                            lz = dz / distance
+                            strength = light.intensity / (1f + distanceSq * 1.2f)
+                        }
+                        illumination += strength * maxOf(0f, nx * lx + ny * ly + nz * lz)
+                    }
+                }
+                item[30] = illumination.coerceIn(0f, 1.8f)
                 item[31] = shadowOpacity.coerceIn(0f, 1f)
                 item[32] = shadowOffsetX.coerceIn(-1f, 1f)
                 item[33] = shadowOffsetY.coerceIn(-1f, 1f)
@@ -1505,6 +1538,13 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         o.put("shadowOpacity", shadowOpacity.toDouble())
         o.put("shadowX", shadowOffsetX.toDouble())
         o.put("shadowY", shadowOffsetY.toDouble())
+        val la = JSONArray()
+        for (light in lights) {
+            la.put(JSONObject().put("id", light.id).put("name", light.name).put("type", light.type)
+                .put("x", light.x.toDouble()).put("y", light.y.toDouble()).put("z", light.z.toDouble())
+                .put("az", light.azimuth.toDouble()).put("el", light.elevation.toDouble()).put("power", light.intensity.toDouble()))
+        }
+        o.put("lights", la)
         val a = JSONArray()
         for (l in layers) a.put(l.js())
         o.put("l", a)
@@ -1533,6 +1573,22 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             c.lightElevation = o.optDouble("lightEl", 55.0).toFloat().coerceIn(-89f, 89f)
             c.lightIntensity = o.optDouble("lightPower", 0.85).toFloat().coerceIn(0f, 1.5f)
             c.ambientLight = o.optDouble("ambient", 0.3).toFloat().coerceIn(0f, 1f)
+            val savedLights = o.optJSONArray("lights")
+            if (savedLights != null) for (i in 0 until savedLights.length()) {
+                val light = savedLights.optJSONObject(i) ?: continue
+                val type = light.optInt("type", 0).coerceIn(0, 1)
+                c.lights.add(SceneLight(
+                    light.optString("id", UUID.randomUUID().toString().take(8)),
+                    light.optString("name", if (type == 0) "Directional" else "Point"),
+                    type,
+                    light.optDouble("x", 0.0).toFloat().coerceIn(-10f, 10f),
+                    light.optDouble("y", 0.0).toFloat().coerceIn(-10f, 10f),
+                    light.optDouble("z", 1.0).toFloat().coerceIn(-10f, 10f),
+                    light.optDouble("az", -35.0).toFloat().coerceIn(-180f, 180f),
+                    light.optDouble("el", 55.0).toFloat().coerceIn(-89f, 89f),
+                    light.optDouble("power", 0.85).toFloat().coerceIn(0f, 1.5f)
+                ))
+            }
             c.shadowOpacity = o.optDouble("shadowOpacity", 0.35).toFloat().coerceIn(0f, 1f)
             c.shadowOffsetX = o.optDouble("shadowX", 0.08).toFloat().coerceIn(-1f, 1f)
             c.shadowOffsetY = o.optDouble("shadowY", -0.08).toFloat().coerceIn(-1f, 1f)

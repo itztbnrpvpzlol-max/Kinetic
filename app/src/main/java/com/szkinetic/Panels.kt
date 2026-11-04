@@ -751,9 +751,6 @@ fun MasksPanel(comp: Comp?, c: Cur, m: Modifier) {
                 pts.forEachIndexed { i, p ->
                     drawCircle(if (i == pts.lastIndex) Color(0xFFFFD166) else Color.White, 5.dp.toPx(), p)
                 }
-                if (pts.size < 3) {
-                    drawContext.canvas.nativeCanvas.let { }
-                }
             }
             Text("Tap the preview to add mask vertices. Three or more points create a closed polygon.", color = DIM, fontSize = 9.sp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

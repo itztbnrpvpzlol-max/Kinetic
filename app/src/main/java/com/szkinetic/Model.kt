@@ -284,6 +284,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var parent by mutableStateOf("")
     val pr = Array(NCH) { Prop(PDEF[it]) }
     var mid by mutableStateOf("")
+    var preCompId by mutableStateOf("")
     var kind = -1
     var start by mutableStateOf(0f)
     var off = 0f
@@ -319,6 +320,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.parent = parent
         for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
         q.mid = mid
+        q.preCompId = preCompId
         q.kind = kind
         q.start = start
         q.off = off
@@ -344,6 +346,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         for (p in pr) a.put(p.js())
         o.put("pr", a)
         o.put("mi", mid)
+        o.put("pc", preCompId)
         o.put("k", kind)
         o.put("s", start.toDouble())
         o.put("of", off.toDouble())
@@ -389,6 +392,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
                 }
             }
             l.mid = o.optString("mi", "")
+            l.preCompId = o.optString("pc", "")
             l.kind = o.optInt("k", -1)
             l.start = o.optDouble("s", 0.0).toFloat()
             l.off = o.optDouble("of", 0.0).toFloat()
@@ -422,6 +426,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     val layers = mutableStateListOf<Layer>()
     var lib: List<Media> = emptyList()
     var proj: Project? = null
+    var onOpenComp: ((String) -> Unit)? = null
     var playing by mutableStateOf(false)
     private var t0 by mutableStateOf(0f)
 
@@ -849,27 +854,77 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         return m
     }
 
-    fun frame(): Frame {
+    fun frame(): Frame = frameAt(time, 0, emptySet(), playing)
+
+    private fun frameAt(t: Float, depth: Int, chain: Set<String>, renderPlaying: Boolean): Frame {
+        if (depth > 8 || id in chain) return Frame(FloatArray(0), emptyArray())
+        val nextChain = chain + id
         val n = layers.size
-        val a = FloatArray(n * STR)
-        val b = arrayOfNulls<Bitmap>(n)
+        var out = FloatArray(maxOf(n, 4) * STR)
+        var bitmaps = arrayOfNulls<Bitmap>(maxOf(n, 4))
+        var count = 0
+        fun append(src: FloatArray, offset: Int, bm: Bitmap?) {
+            if (count >= bitmaps.size) {
+                out = out.copyOf(out.size * 2)
+                bitmaps = bitmaps.copyOf(bitmaps.size * 2)
+            }
+            System.arraycopy(src, offset, out, count * STR, STR)
+            bitmaps[count] = bm
+            count++
+        }
+
         val asp = w.toFloat() / h
-        val t = time
         val memo = HashMap<Layer, Aff>()
         val solo = layers.any { it.solo }
-        var k = 0
-        for (i in n - 1 downTo 0) {
+        for (i in layers.size - 1 downTo 0) {
             val l = layers[i]
             if (l.role == 1 || !l.vis || l.kind == 2 || t < l.start || t > l.end(dur)) continue
             if (solo && !l.solo) continue
-            val o = k * STR
             val op = l.gv(OP, t).coerceIn(0f, 1f)
+            val parentWorld = world(l, t, asp, memo, 0) ?: continue
+
+            // A pre-comp is rendered by flattening its child frame into this frame.
+            // No intermediate bitmap is required, so child footage remains GPU-textured.
+            if (l.preCompId.isNotEmpty()) {
+                val nested = proj?.comps?.firstOrNull { it.id == l.preCompId } ?: continue
+                if (nested.id in nextChain) continue
+                val nestedTime = t - l.start + l.off
+                if (nestedTime < 0f || nestedTime > nested.dur) continue
+                val child = nested.frameAt(nestedTime, depth + 1, nextChain, renderPlaying)
+                val ratio = asp / (nested.w.toFloat() / nested.h)
+                val fit = Aff(ratio, 0f, 0f, 1f, 0f, 0f)
+                for (j in child.b.indices) {
+                    val o = j * STR
+                    val childWorld = Aff(
+                        child.d[o], child.d[o + 1], child.d[o + 2], child.d[o + 3],
+                        child.d[o + 4], child.d[o + 5]
+                    )
+                    val m = parentWorld.mul(fit.mul(childWorld))
+                    val item = FloatArray(STR)
+                    item[0] = m.a
+                    item[1] = m.b
+                    item[2] = m.c
+                    item[3] = m.d
+                    item[4] = m.tx
+                    item[5] = m.ty
+                    item[6] = child.d[o + 6]
+                    item[7] = child.d[o + 7]
+                    item[8] = child.d[o + 8]
+                    item[9] = child.d[o + 9] * op
+                    item[10] = child.d[o + 10]
+                    item[11] = child.d[o + 11]
+                    item[12] = child.d[o + 12]
+                    append(item, 0, child.b[j])
+                }
+                continue
+            }
+
             var ex = 0.3f
             var ey = 0.3f
             var bm: Bitmap? = null
             if (l.kind >= 0) {
-                val m = lib.firstOrNull { it.id == l.mid } ?: continue
-                bm = Frames.get(m, t - l.start + l.off, playing) ?: continue
+                val media = lib.firstOrNull { it.id == l.mid } ?: continue
+                bm = Frames.get(media, t - l.start + l.off, renderPlaying) ?: continue
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp
@@ -879,29 +934,54 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                     ey = 1f
                 }
             }
-            val m = world(l, t, asp, memo, 0) ?: continue
-            a[o] = m.a
-            a[o + 1] = m.b
-            a[o + 2] = m.c
-            a[o + 3] = m.d
-            a[o + 4] = m.tx
-            a[o + 5] = m.ty
+            val item = FloatArray(STR)
+            item[0] = parentWorld.a
+            item[1] = parentWorld.b
+            item[2] = parentWorld.c
+            item[3] = parentWorld.d
+            item[4] = parentWorld.tx
+            item[5] = parentWorld.ty
             if (bm != null) {
-                a[o + 6] = 1f
-                a[o + 7] = 1f
-                a[o + 8] = 1f
+                item[6] = 1f
+                item[7] = 1f
+                item[8] = 1f
             } else {
-                a[o + 6] = ((l.col shr 16) and 255L) / 255f
-                a[o + 7] = ((l.col shr 8) and 255L) / 255f
-                a[o + 8] = (l.col and 255L) / 255f
+                item[6] = ((l.col shr 16) and 255L) / 255f
+                item[7] = ((l.col shr 8) and 255L) / 255f
+                item[8] = (l.col and 255L) / 255f
             }
-            a[o + 9] = op
-            a[o + 10] = ex
-            a[o + 11] = ey
-            b[k] = bm
-            k++
+            item[9] = op
+            item[10] = ex
+            item[11] = ey
+            append(item, 0, bm)
         }
-        return Frame(a.copyOf(k * STR), b.copyOf(k))
+        return Frame(out.copyOf(count * STR), bitmaps.copyOf(count))
+    }
+
+    // Move selected layers into a new composition and replace them with one pre-comp layer.
+    // Refuse cross-boundary parenting rather than silently changing the animation.
+    fun precomposeSelected(name: String): Boolean {
+        val p = proj ?: return false
+        val chosen = selected().filter { layers.contains(it) }
+        if (chosen.isEmpty()) return false
+        val chosenIds = chosen.map { it.uid }.toSet()
+        if (chosen.any { it.parent.isNotEmpty() && it.parent !in chosenIds }) return false
+        if (layers.any { it.uid !in chosenIds && it.parent in chosenIds }) return false
+
+        val at = chosen.map { layers.indexOf(it) }.minOrNull() ?: return false
+        mark()
+        val child = Comp(name, w, h, fps, dur)
+        child.layers.addAll(chosen)
+        for (l in chosen) layers.remove(l)
+        child.fixParents()
+        p.addComp(child)
+
+        val pre = Layer(name, 0xFFB0B0B0, 0f, 0f, 1f, 0f)
+        pre.preCompId = child.id
+        pre.len = dur
+        layers.add(at.coerceIn(0, layers.size), pre)
+        pickLayer(layers.indexOf(pre), false)
+        return true
     }
 
     fun js(): JSONObject {

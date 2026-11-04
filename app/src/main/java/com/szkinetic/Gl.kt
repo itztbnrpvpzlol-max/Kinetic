@@ -24,7 +24,10 @@ precision mediump float;
 varying vec2 uv;
 uniform vec4 col;
 uniform float tm,u;
-uniform vec2 fx;
+uniform vec4 fxIds0;
+uniform vec4 fxIds1;
+uniform vec4 fxVals0;
+uniform vec4 fxVals1;
 uniform sampler2D tx;
 void main(){
     vec4 src;
@@ -35,8 +38,11 @@ void main(){
         src=vec4(col.rgb*(0.7+0.3*g),1.0);
     }
     vec3 rgb=src.rgb;
-    float k=fx.x;
-    float v=clamp(fx.y,0.0,1.0);
+    // Eight ordered effects are evaluated in one GPU fragment pass.
+    for(int i=0;i<8;i++){
+    float k = i < 4 ? fxIds0[i] : fxIds1[i-4];
+    float v = clamp(i < 4 ? fxVals0[i] : fxVals1[i-4],0.0,1.0);
+    if(k < 0.5) continue;
     float lum=dot(rgb,vec3(0.299,0.587,0.114));
     if(k>0.5 && k<1.5) rgb=clamp(rgb+vec3((v-0.5)*1.5),0.0,1.0);
     else if(k>1.5 && k<2.5) rgb=clamp((rgb-0.5)*(1.0+(v-0.5)*3.0)+0.5,0.0,1.0);
@@ -69,8 +75,7 @@ void main(){
     else if(k>11.5 && k<12.5 && u>0.5){
         float levels=mix(4.0,64.0,v);
         vec2 cell=floor(uv*levels)/levels;
-        src=texture2D(tx,vec2(cell.x,1.0-cell.y));
-        rgb=src.rgb;
+        rgb=texture2D(tx,vec2(cell.x,1.0-cell.y)).rgb;
     }
     else if(k>12.5 && k<13.5){
         float angle=(v-0.5)*6.2831853;
@@ -94,6 +99,7 @@ void main(){
         float red=texture2D(tx,vec2(clamp(uv.x+shift,0.0,1.0),1.0-uv.y)).r;
         float blue=texture2D(tx,vec2(clamp(uv.x-shift,0.0,1.0),1.0-uv.y)).b;
         rgb=vec3(red,rgb.g,blue);
+    }
     }
     gl_FragColor=vec4(rgb*col.a,src.a*col.a);
 }

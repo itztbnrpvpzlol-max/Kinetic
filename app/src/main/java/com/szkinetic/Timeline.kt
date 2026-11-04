@@ -627,6 +627,7 @@ private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifi
                         ) else f.copy(
                             spatialInManual = true, six = wx - base.first, siy = wy - base.second
                         )
+                        comp.invalidateFrames()
                     }
                 },
                 onDragEnd = { dragIndex = -1; dragSide = -1 },
@@ -878,6 +879,7 @@ fun GraphView(
                                 val r = byProp[p]
                                 if (r == null) 0f else r.fromD(dvd) - r.fromD(0f)
                             }
+                            comp.invalidateFrames()
                         }
                     } else if (st.mode == 2) {
                         val g = rows.getOrNull(st.g)
@@ -901,6 +903,7 @@ fun GraphView(
                                 val slope = if (speedMode) hv - g.fromD(0f) else (f.v - hv) / (ii * dtp)
                                 p.k[st.i] = f.copy(ii = ii, isp = slope)
                             }
+                            comp.invalidateFrames()
                         }
                     } else if (st.mode == 3) {
                         val r = Rect(minOf(st.sx, o.x), minOf(st.sy, o.y), maxOf(st.sx, o.x), maxOf(st.sy, o.y))

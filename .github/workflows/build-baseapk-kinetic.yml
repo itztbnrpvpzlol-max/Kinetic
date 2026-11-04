@@ -5,6 +5,9 @@ on:
     paths:
       - 'baseapk-patch/**'
       - '.github/workflows/build-baseapk-kinetic.yml'
+permissions:
+  contents: read
+  actions: read
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,23 +17,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Download the successful decompilation artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/41792310851/artifacts" -o artifacts.json
+          ARTIFACT_ID=$(python3 -c "import json; d=json.load(open('artifacts.json')); print(next(a['id'] for a in d['artifacts'] if a['name']=='apk-decompiled-output' and not a['expired']))")
+          curl -L --fail -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" -o decompiled.zip
+          mkdir decompiled
+          unzip -q decompiled.zip -d decompiled
+          test -f decompiled/apktool/apktool.yml
+          test -f decompiled/apktool/smali/com/angkin/keyflow/MainActivity.smali
       - name: Install apktool
         run: |
           curl -L --fail -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
-          printf '#!/bin/sh\nexec java -jar "$PWD/apktool.jar" "$@"\n' > apktool
-          chmod +x apktool
-      - name: Decode original base APK
-        run: |
-          test -f input/base.zip
-          ./apktool d input/base.zip -o decoded -f
       - name: Apply Kinetic home UI patch
         run: |
-          mkdir -p decoded/res/layout decoded/res/drawable
-          cp baseapk-patch/res/layout/activity_kinetic_home.xml decoded/res/layout/
-          cp baseapk-patch/res/drawable/kinetic_*.xml decoded/res/drawable/
+          mkdir -p decompiled/apktool/res/layout decompiled/apktool/res/drawable
+          cp baseapk-patch/res/layout/activity_kinetic_home.xml decompiled/apktool/res/layout/
+          cp baseapk-patch/res/drawable/kinetic_*.xml decompiled/apktool/res/drawable/
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('decoded/smali/com/angkin/keyflow/MainActivity.smali')
+          p = Path('decompiled/apktool/smali/com/angkin/keyflow/MainActivity.smali')
           s = p.read_text()
           old = '    :goto_10\n    return-void\n'
           new = '''    :goto_10
@@ -106,7 +116,7 @@ jobs:
           p.write_text(s)
           PY
       - name: Rebuild APK
-        run: ./apktool b decoded -o kinetic-unsigned.apk
+        run: java -jar apktool.jar b decompiled/apktool -o kinetic-unsigned.apk
       - name: Sign APK
         run: |
           curl -L --fail -o signer.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar

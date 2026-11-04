@@ -1,6 +1,8 @@
 package com.szkinetic
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -805,8 +807,10 @@ fun TimePanel(
     var modes by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
     var tw by remember { mutableStateOf(0f) }
+    var leftWidth by remember(comp.id) { mutableFloatStateOf(LEFT.value) }
     val dn = LocalDensity.current.density
-    val lw = if (tw > 0f) minOf(LEFT.value, tw / dn * 0.62f).dp else LEFT
+    val maxLeftWidth = if (tw > 0f) maxOf(220f, tw / dn - 190f) else 720f
+    val lw = leftWidth.coerceIn(220f, maxLeftWidth).dp
     val tm = rememberTextMeasurer()
     val lt = remember(tm) { Lt(tm) }
     val d = comp.dur
@@ -862,6 +866,23 @@ fun TimePanel(
                         }
                     }
                 }
+            }
+            // Draggable divider: resize only the layer/property side of the timeline.
+            Box(
+                Modifier
+                    .width(6.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFF111111))
+                    .pointerInput(comp.id, tw) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            leftWidth = (leftWidth + dragAmount.x / dn)
+                                .coerceIn(220f, maxLeftWidth)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.width(2.dp).fillMaxHeight(0.22f).background(Color(0xFF666666)))
             }
             // ---- right: ruler, tracks or graph
             Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { w = maxOf(it.width.toFloat(), 1f) }) {

@@ -284,6 +284,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var lcol by mutableStateOf(c)
     var uid = UUID.randomUUID().toString().take(8)
     var role = 0 // 0 normal, 1 null, 2 adjustment
+    var isSolid by mutableStateOf(false)
     val pathPoints = mutableStateListOf<PathPoint>()
     var pathClosed by mutableStateOf(true)
     @Transient var pathBitmap: Bitmap? = null
@@ -323,6 +324,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         val q = Layer(n, col, 0f, 0f, 1f, 0f)
         q.lcol = lcol
         q.role = role
+        q.isSolid = isSolid
         q.pathPoints.addAll(pathPoints)
         q.pathClosed = pathClosed
         q.pathBitmap = pathBitmap
@@ -351,6 +353,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         o.put("u", uid)
         o.put("pa", parent)
         o.put("ro", role)
+        o.put("solid", isSolid)
         val pts = JSONArray()
         for (pt in pathPoints) pts.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
         o.put("path", pts)
@@ -382,6 +385,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
             if (u.isNotEmpty()) l.uid = u
             l.parent = o.optString("pa", "")
             l.role = o.optInt("ro", 0)
+            l.isSolid = o.optBoolean("solid", false)
             val pts = o.optJSONArray("path")
             if (pts != null) for (i in 0 until pts.length()) {
                 val pt = pts.optJSONArray(i) ?: continue
@@ -531,7 +535,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
 
     fun addSolid(name: String, color: Long) {
         val n = layers.count { it.role == 0 && it.kind < 0 } + 1
-        addLayer(Layer(name.ifBlank { "Solid $n" }, color, 0f, 0f, 1f, 0f))
+        addLayer(Layer(name.ifBlank { "Solid $n" }, color, 0f, 0f, 1f, 0f).also { it.isSolid = true })
     }
 
     fun addAdjustment() {
@@ -1001,6 +1005,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             var bm: Bitmap? = null
             if (l.pathPoints.isNotEmpty()) {
                 bm = l.pathBitmap ?: makePathBitmap(l.pathPoints.toList(), l.pathClosed, l.col).also { l.pathBitmap = it }
+                ex = 1f
+                ey = 1f
+            } else if (l.isSolid) {
                 ex = 1f
                 ey = 1f
             } else if (l.kind >= 0) {

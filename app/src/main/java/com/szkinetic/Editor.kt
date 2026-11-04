@@ -194,6 +194,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
             }
             "info" -> InfoPanel(comp, c, mod)
             "browser" -> EffectsBrowserPanel(c, mod)
+            "plugins" -> PluginsPanel(comp, c, mod)
             else -> InfoPanel(comp, c, mod)
         }
     }

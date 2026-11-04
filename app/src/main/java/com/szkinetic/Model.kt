@@ -420,10 +420,13 @@ object KClip {
     var items: List<KEntry> = emptyList()
 }
 
+data class CompMarker(val time: Float, val label: String, val color: Long = 0xFFFFC857)
+
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
     var name by mutableStateOf(n)
     val layers = mutableStateListOf<Layer>()
+    val markers = mutableStateListOf<CompMarker>()
     var lib: List<Media> = emptyList()
     var proj: Project? = null
     var onOpenComp: ((String) -> Unit)? = null
@@ -660,6 +663,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         if (lo > hi) return
         val d = dt.coerceIn(lo, hi)
         for (l in ls) l.start += d
+    }
+
+    fun addMarker() {
+        val t = (Math.round(time * fps) / fps.toFloat()).coerceIn(0f, dur)
+        if (markers.any { abs(it.time - t) < 0.5f / fps }) return
+        mark()
+        markers.add(CompMarker(t, "Marker ${markers.size + 1}"))
+        markers.sortBy { it.time }
     }
 
     fun refs(l: Layer): List<PRef> {
@@ -1002,6 +1013,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         val a = JSONArray()
         for (l in layers) a.put(l.js())
         o.put("l", a)
+        val ma = JSONArray()
+        for (marker in markers) {
+            ma.put(JSONObject().put("t", marker.time.toDouble()).put("n", marker.label).put("c", marker.color))
+        }
+        o.put("mk", ma)
         return o
     }
 
@@ -1009,6 +1025,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         fun fromJs(o: JSONObject): Comp {
             val c = Comp(o.getString("n"), o.getInt("w"), o.getInt("h"), o.getInt("f"), o.getDouble("d").toFloat())
             c.id = o.optString("ci", c.id)
+            val ma = o.optJSONArray("mk")
+            if (ma != null) for (i in 0 until ma.length()) {
+                val marker = ma.getJSONObject(i)
+                c.markers.add(CompMarker(marker.optDouble("t", 0.0).toFloat(), marker.optString("n", "Marker"), marker.optLong("c", 0xFFFFC857)))
+            }
             val a = o.getJSONArray("l")
             for (i in 0 until a.length()) {
                 val l = Layer.fromJs(a.getJSONObject(i))

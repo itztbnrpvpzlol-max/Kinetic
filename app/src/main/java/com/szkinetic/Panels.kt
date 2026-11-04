@@ -674,6 +674,9 @@ fun CameraPanel(comp: Comp?, c: Cur, m: Modifier) {
     var yText by remember(camera?.id) { mutableStateOf("%.3f".format(camera?.cameraY ?: 0f)) }
     var distanceText by remember(camera?.id) { mutableStateOf("%.2f".format(camera?.cameraDistance ?: 3f)) }
     var fovText by remember(camera?.id) { mutableStateOf("%.1f".format(camera?.cameraFov ?: 50f)) }
+    var rxText by remember(camera?.id) { mutableStateOf("%.1f".format(camera?.cameraRotX ?: 0f)) }
+    var ryText by remember(camera?.id) { mutableStateOf("%.1f".format(camera?.cameraRotY ?: 0f)) }
+    var rzText by remember(camera?.id) { mutableStateOf("%.1f".format(camera?.cameraRotZ ?: 0f)) }
     Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text("COMPOSITION CAMERA", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (camera == null) {
@@ -720,7 +723,25 @@ fun CameraPanel(comp: Comp?, c: Cur, m: Modifier) {
                     }
                 }
             }
-            Text("Camera settings are saved with the composition. Only layers switched to 3D use this camera; 2D layers remain unchanged. This pass uses a 2.5D plane projection, not a full 3D mesh/depth-buffer renderer.", color = DIM, fontSize = 9.sp)
+            Text("Camera orientation", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("X", color = DIM, fontSize = 9.sp)
+                Edt(rxText, Modifier.width(58.dp), true) { value ->
+                    rxText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let { camera.mark(); camera.cameraRotX = it.coerceIn(-180f, 180f); camera.invalidateFrames() }
+                }
+                Text("Y", color = DIM, fontSize = 9.sp)
+                Edt(ryText, Modifier.width(58.dp), true) { value ->
+                    ryText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let { camera.mark(); camera.cameraRotY = it.coerceIn(-180f, 180f); camera.invalidateFrames() }
+                }
+                Text("Z", color = DIM, fontSize = 9.sp)
+                Edt(rzText, Modifier.width(58.dp), true) { value ->
+                    rzText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let { camera.mark(); camera.cameraRotZ = it.coerceIn(-180f, 180f); camera.invalidateFrames() }
+                }
+            }
+            Text("Camera orientation rotates the 3D view before perspective projection. This remains a 2.5D plane renderer, not a full 3D mesh/depth-buffer renderer.", color = DIM, fontSize = 9.sp)
         }
     }
 }

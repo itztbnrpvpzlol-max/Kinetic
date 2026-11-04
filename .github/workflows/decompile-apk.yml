@@ -118,7 +118,7 @@ jobs:
           {
             echo "## Decompilation complete"
             echo ""
-            echo "- Input: \"${{ steps.apk.outputs.path }}\""
+            echo "- Input: \"$APK_PATH\""
             echo "- JADX output: `decompiled/jadx/`"
             echo "- Apktool output: `decompiled/apktool/`"
             echo ""

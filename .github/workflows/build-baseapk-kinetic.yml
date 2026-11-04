@@ -87,7 +87,7 @@ jobs:
         run: |
           curl -L --fail -o signer.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar
           java -jar signer.jar --apks kinetic-unsigned.apk --out signed
-          cp signed/kinetic-unsigned-aligned-debugSigned.apk Kinetic-baseapk-modified.apk
+          cp signed/kinetic-aligned-debugSigned.apk Kinetic-baseapk-modified.apk
       - uses: actions/upload-artifact@v4
         with:
           name: kinetic-baseapk-modified

@@ -1,6 +1,9 @@
 package com.szkinetic
 
 import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint
+import android.graphics.Path as AndroidPath
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import org.json.JSONArray
@@ -280,7 +283,10 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     val col = c
     var lcol by mutableStateOf(c)
     var uid = UUID.randomUUID().toString().take(8)
-    var role = 0 // 0 normal, 1 null
+    var role = 0 // 0 normal, 1 null, 2 adjustment
+    val pathPoints = mutableStateListOf<PathPoint>()
+    var pathClosed by mutableStateOf(true)
+    @Transient var pathBitmap: Bitmap? = null
     var parent by mutableStateOf("")
     val pr = Array(NCH) { Prop(PDEF[it]) }
     var mid by mutableStateOf("")
@@ -317,6 +323,9 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         val q = Layer(n, col, 0f, 0f, 1f, 0f)
         q.lcol = lcol
         q.role = role
+        q.pathPoints.addAll(pathPoints)
+        q.pathClosed = pathClosed
+        q.pathBitmap = pathBitmap
         q.parent = parent
         for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
         q.mid = mid
@@ -342,6 +351,10 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         o.put("u", uid)
         o.put("pa", parent)
         o.put("ro", role)
+        val pts = JSONArray()
+        for (pt in pathPoints) pts.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
+        o.put("path", pts)
+        o.put("pathClosed", pathClosed)
         val a = JSONArray()
         for (p in pr) a.put(p.js())
         o.put("pr", a)
@@ -369,6 +382,12 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
             if (u.isNotEmpty()) l.uid = u
             l.parent = o.optString("pa", "")
             l.role = o.optInt("ro", 0)
+            val pts = o.optJSONArray("path")
+            if (pts != null) for (i in 0 until pts.length()) {
+                val pt = pts.optJSONArray(i) ?: continue
+                if (pt.length() >= 2) l.pathPoints.add(PathPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat()))
+            }
+            l.pathClosed = o.optBoolean("pathClosed", true)
             val pa = o.optJSONArray("pr")
             if (pa != null) {
                 for (i in 0 until minOf(pa.length(), NCH)) l.pr[i].load(pa.getJSONObject(i))
@@ -421,6 +440,7 @@ object KClip {
 }
 
 data class CompMarker(val time: Float, val label: String, val color: Long = 0xFFFFC857)
+data class PathPoint(val x: Float, val y: Float)
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
@@ -507,6 +527,26 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     fun addNull() {
         val n = layers.count { it.role == 1 } + 1
         addLayer(Layer("Null $n", 0xFFE2574A, 0f, 0f, 1f, 0f).also { it.role = 1 })
+    }
+
+    fun addSolid(name: String, color: Long) {
+        val n = layers.count { it.role == 0 && it.kind < 0 } + 1
+        addLayer(Layer(name.ifBlank { "Solid $n" }, color, 0f, 0f, 1f, 0f))
+    }
+
+    fun addAdjustment() {
+        val n = layers.count { it.role == 2 } + 1
+        addLayer(Layer("Adjustment Layer $n", 0xFFFFFFFF, 0f, 0f, 1f, 0f).also { it.role = 2 })
+    }
+
+    fun addPenPath(points: List<PathPoint>, color: Long = 0xFF4A90E2, closed: Boolean = true) {
+        if (points.size < 2) return
+        val n = layers.count { it.pathPoints.isNotEmpty() } + 1
+        val l = Layer("Path $n", color, 0f, 0f, 1f, 0f)
+        l.pathPoints.addAll(points)
+        l.pathClosed = closed
+        l.pathBitmap = makePathBitmap(points, closed, color)
+        addLayer(l)
     }
 
     fun addMedia(m: Media) {
@@ -867,6 +907,25 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
 
     fun frame(): Frame = frameAt(time, 0, emptySet(), playing)
 
+    private fun makePathBitmap(points: List<PathPoint>, closed: Boolean, color: Long): Bitmap {
+        val bmp = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888)
+        val canvas = AndroidCanvas(bmp)
+        val path = AndroidPath()
+        val first = points.first()
+        path.moveTo(first.x.coerceIn(0f, 1f) * 1024f, first.y.coerceIn(0f, 1f) * 1024f)
+        for (pt in points.drop(1)) path.lineTo(pt.x.coerceIn(0f, 1f) * 1024f, pt.y.coerceIn(0f, 1f) * 1024f)
+        if (closed) path.close()
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = android.graphics.Color.argb(((color shr 24) and 255L).toInt(), ((color shr 16) and 255L).toInt(), ((color shr 8) and 255L).toInt(), (color and 255L).toInt())
+            style = if (closed) Paint.Style.FILL else Paint.Style.STROKE
+            strokeWidth = 5f
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
+        canvas.drawPath(path, paint)
+        return bmp
+    }
+
     private fun frameAt(t: Float, depth: Int, chain: Set<String>, renderPlaying: Boolean): Frame {
         if (depth > 8 || id in chain) return Frame(FloatArray(0), emptyArray())
         val nextChain = chain + id
@@ -916,7 +975,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         val solo = layers.any { it.solo }
         for (i in layers.size - 1 downTo 0) {
             val l = layers[i]
-            if (l.role == 1 || !l.vis || l.kind == 2 || t < l.start || t > l.end(dur)) continue
+            if (l.role == 1 || l.role == 2 || !l.vis || l.kind == 2 || t < l.start || t > l.end(dur)) continue
             if (solo && !l.solo) continue
             val op = l.gv(OP, t).coerceIn(0f, 1f)
             val parentWorld = world(l, t, asp, memo, 0) ?: continue
@@ -940,7 +999,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             var ex = 0.3f
             var ey = 0.3f
             var bm: Bitmap? = null
-            if (l.kind >= 0) {
+            if (l.pathPoints.isNotEmpty()) {
+                bm = l.pathBitmap ?: makePathBitmap(l.pathPoints.toList(), l.pathClosed, l.col).also { l.pathBitmap = it }
+                ex = 1f
+                ey = 1f
+            } else if (l.kind >= 0) {
                 val media = lib.firstOrNull { it.id == l.mid } ?: continue
                 bm = Frames.get(media, t - l.start + l.off, renderPlaying) ?: continue
                 val ma = bm.width.toFloat() / bm.height
@@ -1033,7 +1096,6 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             val a = o.getJSONArray("l")
             for (i in 0 until a.length()) {
                 val l = Layer.fromJs(a.getJSONObject(i))
-                if (l.role == 2) continue // adjustment layers (removed with the effects system)
                 l.len = minOf(l.len, c.dur)
                 c.layers.add(l)
             }

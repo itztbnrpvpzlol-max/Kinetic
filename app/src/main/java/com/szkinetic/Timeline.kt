@@ -2,6 +2,7 @@ package com.szkinetic
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -582,7 +583,7 @@ private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifi
     val rangeX = (maxX - minX).coerceAtLeast(1f)
     val rangeY = (maxY - minY).coerceAtLeast(1f)
     Canvas(
-        modifier.pointerInput(layer, keys.toList(), py.k.toList()) {
+        modifier.pointerInput(layer) {
             fun screen(x: Float, y: Float): Offset {
                 val pad = 28f
                 return Offset(
@@ -633,6 +634,20 @@ private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifi
                 onDragCancel = { dragIndex = -1; dragSide = -1 }
             )
         }
+            .pointerInput(layer) {
+                detectTapGestures { o ->
+                    var best = 18f
+                    for (i in points.indices) {
+                        val pad = 28f
+                        val p = Offset(
+                            pad + (points[i].first - minX) / rangeX * (size.width - 2f * pad),
+                            size.height - pad - (points[i].second - minY) / rangeY * (size.height - 2f * pad)
+                        )
+                        val d = (p - o).getDistance()
+                        if (d < best) { best = d; selected = i }
+                    }
+                }
+            }
     ) {
         if (points.size < 2) return@Canvas
         fun screen(x: Float, y: Float): Offset {

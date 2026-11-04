@@ -302,6 +302,7 @@ fun CompPanel(
     var py by remember(comp.id) { mutableStateOf(0f) }
     var vw by remember { mutableStateOf(1f) }
     var vh by remember { mutableStateOf(1f) }
+    var gridOn by remember(comp.id) { mutableStateOf(false) }
     val lp = remember { floatArrayOf(0f, 0f) }
     Column(m) {
         Row(Modifier.fillMaxWidth().height(18.dp).background(PB), verticalAlignment = Alignment.CenterVertically) {
@@ -314,6 +315,20 @@ fun CompPanel(
             vh = maxOf(it.height.toFloat(), 1f)
         }) {
             Viewer(comp, res, zm, px, py, Modifier.fillMaxSize())
+            if (gridOn) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val stepX = size.width / 10f
+                    val stepY = size.height / 10f
+                    val thin = Color(0x557F9AB8)
+                    val axis = Color(0xAA9DB8D8)
+                    for (i in 0..10) {
+                        val x = i * stepX
+                        val y = i * stepY
+                        drawLine(if (i == 5) axis else thin, Offset(x, 0f), Offset(x, size.height), if (i == 5) 1.25.dp.toPx() else 0.65.dp.toPx())
+                        drawLine(if (i == 5) axis else thin, Offset(0f, y), Offset(size.width, y), if (i == 5) 1.25.dp.toPx() else 0.65.dp.toPx())
+                    }
+                }
+            }
             if (zm > 1.01f || tool == 1 || tool == 2) {
                 // hand tool / zoomed view: drag to pan; zoom tool: tap to zoom in
                 Box(
@@ -375,6 +390,7 @@ fun CompPanel(
             TimeText(comp)
             Spacer(Modifier.weight(1f))
             Dd("(" + QN[res - 1] + ")", c) { QN.mapIndexed { i, n -> n to { onRes(i + 1) } } }
+            FlatBtn("Grid", c, gridOn) { gridOn = !gridOn }
             Text("Active Camera", color = TXT, fontSize = AE_FONT, maxLines = 1)
             Text("1 View", color = TXT, fontSize = AE_FONT, maxLines = 1)
             Text("+0.0", color = TXT, fontSize = AE_FONT, maxLines = 1)

@@ -454,10 +454,38 @@ fun TrackProp(
         }
         Unit
     }
+    val keyMenu: (Offset) -> Unit = { o ->
+        var bp = -1
+        var bi = -1
+        var bd = 14f
+        for (pi in r.ps.indices) for (ki in r.ps[pi].k.indices) {
+            val dd = abs(o.x - xp(r.ps[pi].k[ki].t))
+            if (dd < bd) { bd = dd; bp = pi; bi = ki }
+        }
+        if (bp >= 0) {
+            val p = r.ps[bp]
+            if (!p.k[bi].sel) {
+                comp.clearKeys()
+                p.setSel(bi, true)
+            }
+        }
+        c.menu = Menu(o, listOf(
+            "Easy Ease" to { comp.easeKeys(3) },
+            "Easy Ease In" to { comp.easeKeys(4) },
+            "Easy Ease Out" to { comp.easeKeys(5) },
+            "Linear" to { comp.easeKeys(0) },
+            "Hold" to { comp.easeKeys(2) },
+            "Copy" to { comp.copyKeys() },
+            "Paste" to { comp.pasteKeys() },
+            "Select All Keyframes" to { comp.selectAllKeys() },
+            "Delete Keyframes" to { comp.delKeys() }
+        ))
+    }
     Canvas(
         Modifier.fillMaxWidth().height(RH).rowLine()
             .cur(
                 c,
+                rc = keyMenu,
                 drag = { o ->
                     if (st.mode == 1) {
                         if (!st.moved && abs(o.x - st.sx) > 3f) {
@@ -650,8 +678,29 @@ fun GraphView(
     Column(m) {
         Canvas(
             Modifier.weight(1f).fillMaxWidth().padding(1.dp).onSizeChanged { hh = maxOf(it.height.toFloat(), 1f) }.then(
-                if (speedMode) Modifier else Modifier.cur(
+                Modifier.cur(
                 c,
+                rc = { o ->
+                    val h = hit(o)
+                    if (h != null) {
+                        val p = rows[h.g].p
+                        if (!p.k[h.i].sel) {
+                            comp.clearKeys()
+                            p.setSel(h.i, true)
+                        }
+                    }
+                    c.menu = Menu(o, listOf(
+                        "Easy Ease" to { comp.easeKeys(3) },
+                        "Easy Ease In" to { comp.easeKeys(4) },
+                        "Easy Ease Out" to { comp.easeKeys(5) },
+                        "Linear" to { comp.easeKeys(0) },
+                        "Hold" to { comp.easeKeys(2) },
+                        "Copy" to { comp.copyKeys() },
+                        "Paste" to { comp.pasteKeys() },
+                        "Select All Keyframes" to { comp.selectAllKeys() },
+                        "Delete Keyframes" to { comp.delKeys() }
+                    ))
+                },
                 drag = { o ->
                     if (st.mode == 1) {
                         if (!st.moved && (abs(o.x - st.sx) > 3f || abs(o.y - st.sy) > 3f)) {
@@ -911,7 +960,20 @@ fun TimePanel(
             // ---- right: ruler, tracks or graph
             Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { w = maxOf(it.width.toFloat(), 1f) }) {
                 Column(Modifier.fillMaxSize()) {
-                    Canvas(Modifier.fillMaxWidth().height(48.dp).background(PB).cur(c, { seek(it.x) }) { seek(it.x) }) {
+                    Canvas(
+                        Modifier.fillMaxWidth().height(48.dp).background(PB).cur(
+                            c,
+                            rc = { o ->
+                                c.menu = Menu(o, listOf(
+                                    "Add Marker" to { comp.time = xt(o.x); comp.addMarker() },
+                                    "Go to Start" to { comp.time = 0f },
+                                    "Go to End" to { comp.time = comp.dur },
+                                    "Select All Keyframes" to { comp.selectAllKeys() }
+                                ))
+                            },
+                            click = { seek(it.x) }
+                        )
+                    ) {
                         val x0 = xp(0f)
                         val x1 = xp(d)
                         val y0 = 26.dp.toPx()

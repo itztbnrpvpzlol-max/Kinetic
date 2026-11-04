@@ -164,7 +164,7 @@ val D_SCL = PDef("Scale", intArrayOf(SX, SY), listOf("X", "Y"), "%", 0.5f, -1000
 val D_ROT = PDef("Rotation", intArrayOf(RT), listOf(""), "\u00B0", 0.5f, -36000f, 36000f)
 val D_OPA = PDef("Opacity", intArrayOf(OP), listOf(""), "%", 0.5f, 0f, 100f)
 private val TD2 = listOf(D_ANC, D_POS, D_SCL, D_ROT, D_OPA)
-private val TD3 = listOf(D_ANC, D_POS3, D_SCL, D_ROT, D_OPA)
+private val TD3 = listOf(D_ANC, D_POS3, D_SCL, D_ROT, D_ROT_X, D_ROT_Y, D_OPA)
 
 fun tdefs(l: Layer): List<PDef> = if (l.is3d) TD3 else TD2
 

@@ -289,6 +289,34 @@ fun LProp(comp: Comp, r: TProp, c: Cur, graph: Boolean, multi: Boolean) {
                 ps.forEach { it.selAll() }
             }
         )
+        if (r.name == "Scale") {
+            Canvas(
+                Modifier.size(22.dp, 24.dp).cur(c) {
+                    comp.mark()
+                    r.l.link = !r.l.link
+                }
+            ) {
+                val col = if (r.l.link) VB else Color(0xFF777777)
+                val w = 8.dp.toPx()
+                val h = 5.dp.toPx()
+                rotate(-45f, Offset(size.width / 2, size.height / 2)) {
+                    drawRoundRect(
+                        col,
+                        Offset(size.width / 2 - w * 0.9f, size.height / 2 - h / 2),
+                        Size(w, h),
+                        androidx.compose.ui.geometry.CornerRadius(h / 2),
+                        style = Stroke(1.4.dp.toPx())
+                    )
+                    drawRoundRect(
+                        col,
+                        Offset(size.width / 2 - w * 0.1f, size.height / 2 - h / 2),
+                        Size(w, h),
+                        androidx.compose.ui.geometry.CornerRadius(h / 2),
+                        style = Stroke(1.4.dp.toPx())
+                    )
+                }
+            }
+        }
         Row(Modifier.width(VALW), verticalAlignment = Alignment.CenterVertically) {
             ps.forEachIndexed { i, p ->
                 if (i > 0) Text(",", color = VB, fontSize = AE_FONT)

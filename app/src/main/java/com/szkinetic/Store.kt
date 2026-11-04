@@ -13,11 +13,8 @@ import kotlinx.coroutines.withContext
 
 class Settings(c: Context) {
     private val sp = c.getSharedPreferences("kinetic", Context.MODE_PRIVATE)
-    private val initialCursor = if (!sp.getBoolean("touch_input_migrated", false)) {
-        sp.edit().putBoolean("cursor", false).putBoolean("touch_input_migrated", true).apply()
-        false
-    } else sp.getBoolean("cursor", false)
-    var cursor by mutableStateOf(initialCursor)
+    // The virtual-cursor overlay intercepted touch and text input; native touch is the editor input model.
+    var cursor by mutableStateOf(false)
     var vol by mutableStateOf(sp.getBoolean("vol", true))
     var up by mutableStateOf(sp.getInt("up", 0))
     var down by mutableStateOf(sp.getInt("down", 1))
@@ -28,7 +25,7 @@ class Settings(c: Context) {
 
     fun save() {
         sp.edit()
-            .putBoolean("cursor", cursor)
+            .putBoolean("cursor", false)
             .putBoolean("vol", vol)
             .putInt("up", up)
             .putInt("down", down)

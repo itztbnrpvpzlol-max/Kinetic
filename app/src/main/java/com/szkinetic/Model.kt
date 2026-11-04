@@ -748,6 +748,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var cameraY by mutableStateOf(0f)
     var cameraDistance by mutableStateOf(3f)
     var cameraFov by mutableStateOf(50f)
+    var cameraRotX by mutableStateOf(0f)
+    var cameraRotY by mutableStateOf(0f)
+    var cameraRotZ by mutableStateOf(0f)
     var lightingEnabled by mutableStateOf(false)
     var lightAzimuth by mutableStateOf(-35f)
     var lightElevation by mutableStateOf(55f)
@@ -1214,6 +1217,19 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         val position = l.position(t)
         var tx = (position.first - if (l.is3d && cameraEnabled) cameraX else 0f) * asp
         var ty = position.second - if (l.is3d && cameraEnabled) cameraY else 0f
+        var cameraDepth = l.gv(PZ, t)
+        if (l.is3d && cameraEnabled) {
+            val cx = Math.toRadians(cameraRotX.toDouble())
+            val cy = Math.toRadians(cameraRotY.toDouble())
+            val cz = Math.toRadians(cameraRotZ.toDouble())
+            val x1 = tx * cos(cy).toFloat() + cameraDepth * sin(cy).toFloat()
+            val z1 = -tx * sin(cy).toFloat() + cameraDepth * cos(cy).toFloat()
+            val y2 = ty * cos(cx).toFloat() - z1 * sin(cx).toFloat()
+            val z2 = ty * sin(cx).toFloat() + z1 * cos(cx).toFloat()
+            tx = x1 * cos(cz).toFloat() - y2 * sin(cz).toFloat()
+            ty = x1 * sin(cz).toFloat() + y2 * cos(cz).toFloat()
+            cameraDepth = z2
+        }
         var sx = l.gv(SX, t)
         var sy = l.gv(SY, t)
         val r = Math.toRadians(l.gv(RT, t).toDouble())
@@ -1228,7 +1244,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         if (l.is3d) {
             // Orthographic projection of an Euler-rotated layer plane with depth perspective.
             val distance = if (cameraEnabled) cameraDistance.coerceIn(0.25f, 100f) else 1f
-            val depth = distance + l.gv(PZ, t)
+            val depth = distance + cameraDepth
             if (depth <= 0.05f) return null
             val fovScale = if (cameraEnabled) kotlin.math.tan(Math.toRadians(25.0)).toFloat() / kotlin.math.tan(Math.toRadians(cameraFov.coerceIn(15f, 100f).toDouble() / 2.0)).toFloat() else 1f
             val persp = distance / depth * fovScale
@@ -1478,6 +1494,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         o.put("camY", cameraY.toDouble())
         o.put("camDistance", cameraDistance.toDouble())
         o.put("camFov", cameraFov.toDouble())
+        o.put("camRX", cameraRotX.toDouble())
+        o.put("camRY", cameraRotY.toDouble())
+        o.put("camRZ", cameraRotZ.toDouble())
         o.put("lightOn", lightingEnabled)
         o.put("lightAz", lightAzimuth.toDouble())
         o.put("lightEl", lightElevation.toDouble())
@@ -1506,6 +1525,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             c.cameraY = o.optDouble("camY", 0.0).toFloat().coerceIn(-10f, 10f)
             c.cameraDistance = o.optDouble("camDistance", 3.0).toFloat().coerceIn(0.25f, 100f)
             c.cameraFov = o.optDouble("camFov", 50.0).toFloat().coerceIn(15f, 100f)
+            c.cameraRotX = o.optDouble("camRX", 0.0).toFloat().coerceIn(-180f, 180f)
+            c.cameraRotY = o.optDouble("camRY", 0.0).toFloat().coerceIn(-180f, 180f)
+            c.cameraRotZ = o.optDouble("camRZ", 0.0).toFloat().coerceIn(-180f, 180f)
             c.lightingEnabled = o.optBoolean("lightOn", false)
             c.lightAzimuth = o.optDouble("lightAz", -35.0).toFloat().coerceIn(-180f, 180f)
             c.lightElevation = o.optDouble("lightEl", 55.0).toFloat().coerceIn(-89f, 89f)

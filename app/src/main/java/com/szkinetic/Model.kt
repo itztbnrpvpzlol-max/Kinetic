@@ -441,7 +441,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
 }
 
 // Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
-const val STR = 14
+const val MAX_LAYER_EFFECTS = 8
+const val STR = 14 + MAX_LAYER_EFFECTS * 2
 
 class PRef(val id: String, val name: String, val p: Prop)
 class KSnap(val p: Prop, val orig: List<Kf>)

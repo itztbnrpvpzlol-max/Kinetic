@@ -92,13 +92,26 @@ jobs:
       - name: Decompile code with JADX
         env:
           APK_PATH: ${{ steps.apk.outputs.path }}
+        shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          mkdir -p decompiled/jadx
+          set +e
           /opt/jadx/bin/jadx \
             --show-bad-code \
             --deobf \
             -d decompiled/jadx \
-            "$APK_PATH"
+            "$APK_PATH" 2>&1 | tee decompiled/jadx/jadx.log
+          jadx_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$jadx_status" -ne 0 ]]; then
+            echo "::warning::JADX reported recoverable decompilation errors (exit $jadx_status). Keeping partial output and continuing with Apktool."
+            echo "JADX exit code: $jadx_status (partial output retained; inspect jadx/jadx.log)." > decompiled/jadx/DECOMPILATION-WARNING.txt
+          fi
+          if [[ -z "$(find decompiled/jadx -type f -name '*.java' -print -quit)" ]]; then
+            echo "::error::JADX produced no Java source files."
+            exit 1
+          fi
 
       - name: Decode resources and smali with Apktool
         env:

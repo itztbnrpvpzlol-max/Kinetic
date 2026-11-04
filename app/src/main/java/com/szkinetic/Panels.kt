@@ -592,6 +592,78 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
 }
 
 
+// ---------------------------------------------------------------- 3D lighting and shadows
+@Composable
+fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
+    val scene = comp
+    var azText by remember(scene?.id) { mutableStateOf("%.1f".format(scene?.lightAzimuth ?: -35f)) }
+    var elText by remember(scene?.id) { mutableStateOf("%.1f".format(scene?.lightElevation ?: 55f)) }
+    var powerText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.lightIntensity ?: 0.85f)) }
+    var ambientText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.ambientLight ?: 0.3f)) }
+    var shadowText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOpacity ?: 0.35f)) }
+    var sxText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetX ?: 0.08f)) }
+    var syText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetY ?: -0.08f)) }
+    Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("3D LIGHTING", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        if (scene == null) {
+            Text("Open a composition to configure lighting.", color = DIM, fontSize = 10.sp)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlatBtn(if (scene.lightingEnabled) "Lighting On" else "Lighting Off", c, scene.lightingEnabled) {
+                    scene.mark()
+                    scene.lightingEnabled = !scene.lightingEnabled
+                    scene.invalidateFrames()
+                }
+                Text("Affects 3D layers only", color = DIM, fontSize = 9.sp)
+            }
+            Text("Directional light", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Azimuth °", color = DIM, fontSize = 9.sp)
+                Edt(azText, Modifier.width(64.dp), true) { v ->
+                    azText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightAzimuth = it.coerceIn(-180f, 180f); scene.invalidateFrames() }
+                }
+                Text("Elevation °", color = DIM, fontSize = 9.sp)
+                Edt(elText, Modifier.width(64.dp), true) { v ->
+                    elText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightElevation = it.coerceIn(-89f, 89f); scene.invalidateFrames() }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Intensity", color = DIM, fontSize = 9.sp)
+                Edt(powerText, Modifier.width(64.dp), true) { v ->
+                    powerText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightIntensity = it.coerceIn(0f, 1.5f); scene.invalidateFrames() }
+                }
+                Text("Ambient", color = DIM, fontSize = 9.sp)
+                Edt(ambientText, Modifier.width(64.dp), true) { v ->
+                    ambientText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.ambientLight = it.coerceIn(0f, 1f); scene.invalidateFrames() }
+                }
+            }
+            Text("Cast shadow", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Opacity", color = DIM, fontSize = 9.sp)
+                Edt(shadowText, Modifier.width(64.dp), true) { v ->
+                    shadowText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOpacity = it.coerceIn(0f, 1f); scene.invalidateFrames() }
+                }
+                Text("Offset X", color = DIM, fontSize = 9.sp)
+                Edt(sxText, Modifier.width(58.dp), true) { v ->
+                    sxText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOffsetX = it.coerceIn(-1f, 1f); scene.invalidateFrames() }
+                }
+                Text("Y", color = DIM, fontSize = 9.sp)
+                Edt(syText, Modifier.width(58.dp), true) { v ->
+                    syText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOffsetY = it.coerceIn(-1f, 1f); scene.invalidateFrames() }
+                }
+            }
+            Text("The renderer uses a per-layer diffuse lighting term and a GPU alpha-silhouette shadow pass. Shadows are offset, hard-edged 2D projections; soft shadow maps, occlusion and light objects are not part of this pass.", color = DIM, fontSize = 9.sp)
+        }
+    }
+}
+
 // ---------------------------------------------------------------- 3D camera controls
 @Composable
 fun CameraPanel(comp: Comp?, c: Cur, m: Modifier) {

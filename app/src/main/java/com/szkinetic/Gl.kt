@@ -66,7 +66,7 @@ void main(){
     else if(k>10.5 && k<11.5){
         rgb=clamp(rgb*mix(vec3(1.0),vec3(1.0,0.45,0.2),v),0.0,1.0);
     }
-    else if(k>11.5 && k<12.5){
+    else if(k>11.5 && k<12.5 && u>0.5){
         float levels=mix(4.0,64.0,v);
         vec2 cell=floor(uv*levels)/levels;
         src=texture2D(tx,vec2(cell.x,1.0-cell.y));

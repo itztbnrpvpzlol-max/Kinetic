@@ -20,6 +20,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.boundsInRoot
@@ -303,6 +304,8 @@ fun CompPanel(
     var vw by remember { mutableStateOf(1f) }
     var vh by remember { mutableStateOf(1f) }
     var gridOn by remember(comp.id) { mutableStateOf(false) }
+    val penPoints = remember(comp.id) { mutableStateListOf<PathPoint>() }
+    var penColor by remember(comp.id) { mutableLongStateOf(0xFF4A90E2) }
     val lp = remember { floatArrayOf(0f, 0f) }
     Column(m) {
         Row(Modifier.fillMaxWidth().height(18.dp).background(PB), verticalAlignment = Alignment.CenterVertically) {
@@ -327,6 +330,52 @@ fun CompPanel(
                         drawLine(if (i == 5) axis else thin, Offset(x, 0f), Offset(x, size.height), if (i == 5) 1.25.dp.toPx() else 0.65.dp.toPx())
                         drawLine(if (i == 5) axis else thin, Offset(0f, y), Offset(size.width, y), if (i == 5) 1.25.dp.toPx() else 0.65.dp.toPx())
                     }
+                }
+            }
+            if (tool == 3) {
+                Canvas(
+                    Modifier.fillMaxSize().cur(c, click = { o ->
+                        val scale = minOf(vw / comp.w.toFloat(), vh / comp.h.toFloat()) * zm
+                        val cw = comp.w * scale
+                        val ch = comp.h * scale
+                        val left = (vw - cw) / 2f + px * vw
+                        val top = (vh - ch) / 2f - py * vh
+                        if (cw > 0f && ch > 0f && o.x >= left && o.x <= left + cw && o.y >= top && o.y <= top + ch) {
+                            penPoints.add(PathPoint(((o.x - left) / cw).coerceIn(0f, 1f), ((o.y - top) / ch).coerceIn(0f, 1f)))
+                        }
+                    })
+                ) {
+                    if (penPoints.isNotEmpty()) {
+                        val scale = minOf(size.width / comp.w.toFloat(), size.height / comp.h.toFloat()) * zm
+                        val cw = comp.w * scale
+                        val ch = comp.h * scale
+                        val left = (size.width - cw) / 2f + px * size.width
+                        val top = (size.height - ch) / 2f - py * size.height
+                        val path = Path()
+                        penPoints.forEachIndexed { i, pt ->
+                            val x = left + pt.x * cw
+                            val y = top + pt.y * ch
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        if (penPoints.size > 2) path.lineTo(left + penPoints.first().x * cw, top + penPoints.first().y * ch)
+                        drawPath(path, Color(penColor), style = Stroke(width = 2.dp.toPx()))
+                        penPoints.forEach { pt ->
+                            drawCircle(Color.White, 4.dp.toPx(), Offset(left + pt.x * cw, top + pt.y * ch))
+                            drawCircle(Color(penColor), 2.dp.toPx(), Offset(left + pt.x * cw, top + pt.y * ch))
+                        }
+                    }
+                }
+                Row(
+                    Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xDD202020), RoundedCornerShape(3.dp)).padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("PEN  •  ${penPoints.size} points", color = TXT, fontSize = 9.sp)
+                    FlatBtn("Finish", c, false) {
+                        if (penPoints.size >= 2) comp.addPenPath(penPoints.toList(), penColor, true)
+                        penPoints.clear()
+                    }
+                    FlatBtn("Cancel", c) { penPoints.clear() }
                 }
             }
             if (zm > 1.01f || tool == 1 || tool == 2) {

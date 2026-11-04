@@ -180,6 +180,8 @@ fun up(b: Bitmap): Int {
     return i[0]
 }
 
+private data class GlTarget(val framebuffer: Int, val texture: Int)
+
 class Rnd : GLSurfaceView.Renderer {
     @Volatile var f = Frame(FloatArray(0), arrayOfNulls<Bitmap>(0))
     @Volatile var t = 0f

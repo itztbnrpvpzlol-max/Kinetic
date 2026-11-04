@@ -19,7 +19,62 @@ import kotlin.math.ceil
 import kotlin.math.sqrt
 
 const val VS = "attribute vec2 p;uniform vec2 e,t;uniform vec4 m;uniform float a;varying vec2 uv;void main(){uv=p*0.5+0.5;vec2 z=p*e;vec2 w=vec2(m.x*z.x+m.z*z.y,m.y*z.x+m.w*z.y)+t;w.x/=a;gl_Position=vec4(w,0.0,1.0);}"
-const val FS = "precision mediump float;varying vec2 uv;uniform vec4 col;uniform float tm,u;uniform sampler2D tx;void main(){if(u>1.5){vec4 c=texture2D(tx,uv);gl_FragColor=vec4(c.rgb,col.a);return;}if(u>0.5){vec4 t=texture2D(tx,vec2(uv.x,1.0-uv.y));gl_FragColor=vec4(t.rgb*col.a,t.a*col.a);return;}float g=0.5+0.5*sin(uv.x*6.0+tm*3.0);gl_FragColor=vec4(col.rgb*(0.7+0.3*g),col.a);}"
+const val FS = """
+precision mediump float;
+varying vec2 uv;
+uniform vec4 col;
+uniform float tm,u;
+uniform vec2 fx;
+uniform sampler2D tx;
+void main(){
+    vec4 src;
+    if(u>0.5){
+        src=texture2D(tx,vec2(uv.x,1.0-uv.y));
+    }else{
+        float g=0.5+0.5*sin(uv.x*6.0+tm*3.0);
+        src=vec4(col.rgb*(0.7+0.3*g),1.0);
+    }
+    vec3 rgb=src.rgb;
+    float k=fx.x;
+    float v=clamp(fx.y,0.0,1.0);
+    float lum=dot(rgb,vec3(0.299,0.587,0.114));
+    if(k>0.5 && k<1.5) rgb=clamp(rgb+vec3((v-0.5)*1.5),0.0,1.0);
+    else if(k>1.5 && k<2.5) rgb=clamp((rgb-0.5)*(1.0+(v-0.5)*3.0)+0.5,0.0,1.0);
+    else if(k>2.5 && k<3.5) rgb=clamp(mix(vec3(lum),rgb,v*2.0),0.0,1.0);
+    else if(k>3.5 && k<4.5) rgb=mix(rgb,1.0-rgb,v);
+    else if(k>4.5 && k<5.5) rgb=mix(rgb,vec3(lum),v);
+    else if(k>5.5 && k<6.5){
+        vec3 sepia=vec3(dot(rgb,vec3(0.393,0.769,0.189)),dot(rgb,vec3(0.349,0.686,0.168)),dot(rgb,vec3(0.272,0.534,0.131)));
+        rgb=mix(rgb,sepia,v);
+    }
+    else if(k>6.5 && k<7.5){
+        float levels=mix(2.0,32.0,v);
+        rgb=floor(rgb*levels)/levels;
+    }
+    else if(k>7.5 && k<8.5){
+        float d=length(uv-vec2(0.5));
+        float shade=1.0-v*smoothstep(0.2,0.72,d);
+        rgb*=shade;
+    }
+    else if(k>8.5 && k<9.5){
+        float bw=step(v,lum);
+        rgb=vec3(bw);
+    }
+    else if(k>9.5 && k<10.5){
+        rgb=clamp(rgb+vec3((v-0.5)*0.55,0.0,(0.5-v)*0.55),0.0,1.0);
+    }
+    else if(k>10.5 && k<11.5){
+        rgb=clamp(rgb*mix(vec3(1.0),vec3(1.0,0.45,0.2),v),0.0,1.0);
+    }
+    else if(k>11.5 && k<12.5){
+        float levels=mix(4.0,64.0,v);
+        vec2 cell=floor(uv*levels)/levels;
+        src=texture2D(tx,vec2(cell.x,1.0-cell.y));
+        rgb=src.rgb;
+    }
+    gl_FragColor=vec4(rgb*col.a,src.a*col.a);
+}
+"""
 
 var FrameMs by mutableStateOf(0f)
 
@@ -94,6 +149,7 @@ class Rnd : GLSurfaceView.Renderer {
     private var uTm = 0
     private var uU = 0
     private var uX = 0
+    private var uFx = 0
     private var cm = -1
     private val vb = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
         put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
@@ -116,6 +172,7 @@ class Rnd : GLSurfaceView.Renderer {
             uTm = GLES20.glGetUniformLocation(pg, "tm")
             uU = GLES20.glGetUniformLocation(pg, "u")
             uX = GLES20.glGetUniformLocation(pg, "tx")
+            uFx = GLES20.glGetUniformLocation(pg, "fx")
             GLES20.glUseProgram(pg)
             GLES20.glUniform1i(uX, 0)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -137,6 +194,7 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glUniform2f(uT, d[o + 4], d[o + 5])
         GLES20.glUniform4f(uC, d[o + 6], d[o + 7], d[o + 8], d[o + 9])
         GLES20.glUniform2f(uE, d[o + 10], d[o + 11])
+        GLES20.glUniform2f(uFx, d[o + 12], d[o + 13])
         if (bm != null) {
             if (bm.isRecycled) return
             var id = tx[bm]

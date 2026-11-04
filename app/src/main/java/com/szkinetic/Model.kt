@@ -278,6 +278,8 @@ class Aff(val a: Float, val b: Float, val c: Float, val d: Float, val tx: Float,
     )
 }
 
+data class LayerEffect(val id: Int, val amount: Float = 0.5f)
+
 class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var name by mutableStateOf(n)
     val col = c
@@ -288,8 +290,37 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     val pathPoints = mutableStateListOf<PathPoint>()
     var pathClosed by mutableStateOf(true)
     @Transient var pathBitmap: Bitmap? = null
+    // Legacy fields are retained so existing projects and plugin code remain compatible.
     var effectId by mutableIntStateOf(0)
     var effectAmount by mutableFloatStateOf(0.5f)
+    val effects = mutableStateListOf<LayerEffect>()
+
+    fun renderEffects(): List<LayerEffect> =
+        if (effects.isNotEmpty()) effects.take(MAX_LAYER_EFFECTS)
+        else if (effectId in 1..16) listOf(LayerEffect(effectId, effectAmount)) else emptyList()
+
+    fun addEffect(id: Int, amount: Float = 0.5f) {
+        if (id !in 1..16 || renderEffects().size >= MAX_LAYER_EFFECTS) return
+        if (effects.isEmpty() && effectId in 1..16) effects.add(LayerEffect(effectId, effectAmount))
+        effects.add(LayerEffect(id, amount.coerceIn(0f, 1f)))
+        effectId = id
+        effectAmount = amount.coerceIn(0f, 1f)
+    }
+
+    fun removeEffect(index: Int) {
+        if (index !in effects.indices) return
+        effects.removeAt(index)
+        effectId = effects.lastOrNull()?.id ?: 0
+        effectAmount = effects.lastOrNull()?.amount ?: 0.5f
+    }
+
+    fun moveEffect(from: Int, to: Int) {
+        if (from !in effects.indices || to !in effects.indices || from == to) return
+        val effect = effects.removeAt(from)
+        effects.add(to, effect)
+        effectId = effects.lastOrNull()?.id ?: 0
+        effectAmount = effects.lastOrNull()?.amount ?: 0.5f
+    }
     var parent by mutableStateOf("")
     val pr = Array(NCH) { Prop(PDEF[it]) }
     var mid by mutableStateOf("")

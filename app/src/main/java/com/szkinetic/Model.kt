@@ -307,7 +307,19 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         effectAmount = amount.coerceIn(0f, 1f)
     }
 
+    private fun migrateLegacyEffect() {
+        if (effects.isEmpty() && effectId in 1..16) effects.add(LayerEffect(effectId, effectAmount))
+    }
+
+    fun setEffectAmount(index: Int, amount: Float) {
+        migrateLegacyEffect()
+        if (index !in effects.indices) return
+        effects[index] = effects[index].copy(amount = amount.coerceIn(0f, 1f))
+        if (index == effects.lastIndex) effectAmount = effects[index].amount
+    }
+
     fun removeEffect(index: Int) {
+        migrateLegacyEffect()
         if (index !in effects.indices) return
         effects.removeAt(index)
         effectId = effects.lastOrNull()?.id ?: 0
@@ -315,6 +327,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     }
 
     fun moveEffect(from: Int, to: Int) {
+        migrateLegacyEffect()
         if (from !in effects.indices || to !in effects.indices || from == to) return
         val effect = effects.removeAt(from)
         effects.add(to, effect)

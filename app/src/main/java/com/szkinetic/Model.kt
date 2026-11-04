@@ -719,7 +719,23 @@ data class CompMarker(val time: Float, val label: String, val color: Long = 0xFF
 data class PathPoint(val x: Float, val y: Float)
 data class TrackSample(val time: Float, val x: Float, val y: Float, val confidence: Float)
 data class MaskShape(val points: List<PathPoint>, val feather: Float = 0f, val opacity: Float = 1f, val inverted: Boolean = false, val enabled: Boolean = true)
-data class SceneLight(val id: String = UUID.randomUUID().toString().take(8), val name: String, val type: Int, val x: Float = 0f, val y: Float = 0f, val z: Float = 1f, val azimuth: Float = -35f, val elevation: Float = 55f, val intensity: Float = 0.85f)
+data class SceneLight(
+    val id: String = UUID.randomUUID().toString().take(8),
+    val name: String,
+    val type: Int,
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val z: Float = 1f,
+    val azimuth: Float = -35f,
+    val elevation: Float = 55f,
+    val intensity: Float = 0.85f,
+    val xAnim: Prop = Prop(x),
+    val yAnim: Prop = Prop(y),
+    val zAnim: Prop = Prop(z),
+    val azimuthAnim: Prop = Prop(azimuth),
+    val elevationAnim: Prop = Prop(elevation),
+    val intensityAnim: Prop = Prop(intensity)
+)
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
@@ -1453,24 +1469,24 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                         val lz: Float
                         val strength: Float
                         if (light.type == 0) {
-                            val az = Math.toRadians(light.azimuth.toDouble())
-                            val el = Math.toRadians(light.elevation.coerceIn(-89f, 89f).toDouble())
+                            val az = Math.toRadians(light.azimuthAnim.get(t).coerceIn(-180f, 180f).toDouble())
+                            val el = Math.toRadians(light.elevationAnim.get(t).coerceIn(-89f, 89f).toDouble())
                             lx = (cos(el) * cos(az)).toFloat()
                             ly = (cos(el) * sin(az)).toFloat()
                             lz = sin(el).toFloat()
-                            strength = light.intensity
+                            strength = light.intensityAnim.get(t)
                         } else {
                             val px = l.position(t).first
                             val py = l.position(t).second
-                            val dx = light.x - px
-                            val dy = light.y - py
-                            val dz = light.z - l.gv(PZ, t)
+                            val dx = light.xAnim.get(t) - px
+                            val dy = light.yAnim.get(t) - py
+                            val dz = light.zAnim.get(t) - l.gv(PZ, t)
                             val distanceSq = dx * dx + dy * dy + dz * dz
                             val distance = kotlin.math.sqrt(distanceSq).coerceAtLeast(0.001f)
                             lx = dx / distance
                             ly = dy / distance
                             lz = dz / distance
-                            strength = light.intensity / (1f + distanceSq * 1.2f)
+                            strength = light.intensityAnim.get(t) / (1f + distanceSq * 1.2f)
                         }
                         illumination += strength * maxOf(0f, nx * lx + ny * ly + nz * lz)
                     }
@@ -1542,7 +1558,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         for (light in lights) {
             la.put(JSONObject().put("id", light.id).put("name", light.name).put("type", light.type)
                 .put("x", light.x.toDouble()).put("y", light.y.toDouble()).put("z", light.z.toDouble())
-                .put("az", light.azimuth.toDouble()).put("el", light.elevation.toDouble()).put("power", light.intensity.toDouble()))
+                .put("az", light.azimuth.toDouble()).put("el", light.elevation.toDouble()).put("power", light.intensity.toDouble())
+                .put("ax", light.xAnim.js()).put("ay", light.yAnim.js()).put("azp", light.zAnim.js())
+                .put("aaz", light.azimuthAnim.js()).put("ael", light.elevationAnim.js()).put("ap", light.intensityAnim.js()))
         }
         o.put("lights", la)
         val a = JSONArray()
@@ -1577,7 +1595,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             if (savedLights != null) for (i in 0 until savedLights.length()) {
                 val light = savedLights.optJSONObject(i) ?: continue
                 val type = light.optInt("type", 0).coerceIn(0, 1)
-                c.lights.add(SceneLight(
+                val sceneLight = SceneLight(
                     light.optString("id", UUID.randomUUID().toString().take(8)),
                     light.optString("name", if (type == 0) "Directional" else "Point"),
                     type,
@@ -1587,7 +1605,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                     light.optDouble("az", -35.0).toFloat().coerceIn(-180f, 180f),
                     light.optDouble("el", 55.0).toFloat().coerceIn(-89f, 89f),
                     light.optDouble("power", 0.85).toFloat().coerceIn(0f, 1.5f)
-                ))
+                )
+                light.optJSONObject("ax")?.let { sceneLight.xAnim.load(it) }
+                light.optJSONObject("ay")?.let { sceneLight.yAnim.load(it) }
+                light.optJSONObject("azp")?.let { sceneLight.zAnim.load(it) }
+                light.optJSONObject("aaz")?.let { sceneLight.azimuthAnim.load(it) }
+                light.optJSONObject("ael")?.let { sceneLight.elevationAnim.load(it) }
+                light.optJSONObject("ap")?.let { sceneLight.intensityAnim.load(it) }
+                c.lights.add(sceneLight)
             }
             c.shadowOpacity = o.optDouble("shadowOpacity", 0.35).toFloat().coerceIn(0f, 1f)
             c.shadowOffsetX = o.optDouble("shadowX", 0.08).toFloat().coerceIn(-1f, 1f)

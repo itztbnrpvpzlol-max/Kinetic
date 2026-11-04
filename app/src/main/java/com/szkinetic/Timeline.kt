@@ -126,6 +126,7 @@ fun LLayer(comp: Comp, l: Layer, i: Int, c: Cur, modes: Boolean, multi: Boolean,
     val menu = mnu(
         c,
         "Rename" to { rn = true },
+        "Open Pre-comp" to { if (l.preCompId.isNotEmpty()) comp.onOpenComp?.invoke(l.preCompId) },
         "Duplicate" to { comp.dupSel() },
         "Split at playhead" to { comp.split(i) },
         "Move up" to { comp.reorder(i, i - 1) },

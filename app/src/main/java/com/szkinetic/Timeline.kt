@@ -169,6 +169,10 @@ fun LLayer(comp: Comp, l: Layer, i: Int, c: Cur, modes: Boolean, multi: Boolean,
             val col = Color(0xFFC8C8C8)
             when {
                 l.role == 1 -> drawRect(col, Offset(2 * u, 2 * u), Size(10 * u, 10 * u), style = Stroke(1.2f * u))
+                l.preCompId.isNotEmpty() -> {
+                    drawRect(col, Offset(1 * u, 3 * u), Size(12 * u, 9 * u), style = Stroke(1.1f * u))
+                    drawRect(col, Offset(4 * u, 1 * u), Size(8 * u, 8 * u), style = Stroke(1.1f * u))
+                }
                 l.kind >= 0 -> {
                     drawRect(Color(l.col), Offset(1 * u, 3 * u), Size(12 * u, 8 * u))
                     drawRect(col, Offset(1 * u, 3 * u), Size(12 * u, 8 * u), style = Stroke(1f * u))

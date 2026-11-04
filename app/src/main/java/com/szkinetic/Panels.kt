@@ -693,3 +693,109 @@ fun TrackingPanel(comp: Comp?, c: Cur, m: Modifier) {
         Text("Tracking uses a fixed image patch and normalized cross-correlation. Stabilization writes inverse Position keyframes; it does not yet correct rotation, scale, rolling shutter, or perspective.", color = DIM, fontSize = 9.sp)
     }
 }
+
+
+// ---------------------------------------------------------------- Layer mask editor
+@Composable
+fun MasksPanel(comp: Comp?, c: Cur, m: Modifier) {
+    val layer = comp?.selected()?.firstOrNull()
+    var featherText by remember(layer?.uid) { mutableStateOf("%.1f".format(layer?.maskFeather ?: 0f)) }
+    var opacityText by remember(layer?.uid) { mutableStateOf("%.0f".format((layer?.maskOpacity ?: 1f) * 100f)) }
+    Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("MASK EDITOR", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(layer?.name ?: "No layer selected", color = Color.White, fontSize = 12.sp, maxLines = 1)
+        if (layer == null) {
+            Text("Select a layer to create or edit its mask.", color = DIM, fontSize = 10.sp)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlatBtn(if (layer.maskEnabled) "Mask On" else "Mask Off", c, layer.maskEnabled) {
+                    comp?.mark()
+                    layer.maskEnabled = !layer.maskEnabled
+                }
+                FlatBtn(if (layer.maskInverted) "Inverted" else "Normal", c, layer.maskInverted) {
+                    comp?.mark()
+                    layer.maskInverted = !layer.maskInverted
+                }
+                FlatBtn("Clear", c, layer.maskPoints.isNotEmpty()) {
+                    comp?.mark()
+                    layer.maskPoints.clear()
+                    layer.maskEnabled = false
+                    comp?.invalidateFrames()
+                }
+            }
+            Canvas(
+                Modifier.fillMaxWidth().height(190.dp).background(Color(0xFF111820), RoundedCornerShape(4.dp))
+                    .border(1.dp, EDG, RoundedCornerShape(4.dp))
+                    .pointerInput(layer.uid) {
+                        detectTapGestures { point ->
+                            comp?.mark()
+                            val x = (point.x / size.width).coerceIn(0f, 1f)
+                            val y = (point.y / size.height).coerceIn(0f, 1f)
+                            layer.maskPoints.add(PathPoint(x, y))
+                            layer.maskEnabled = layer.maskPoints.size >= 3
+                            comp?.invalidateFrames()
+                        }
+                    }
+            ) {
+                val pts = layer.maskPoints.map { Offset(it.x * size.width, it.y * size.height) }
+                for (x in 1..9) drawLine(Color(0x223A9BCE), Offset(size.width * x / 10f, 0f), Offset(size.width * x / 10f, size.height), 1f)
+                for (y in 1..5) drawLine(Color(0x223A9BCE), Offset(0f, size.height * y / 6f), Offset(size.width, size.height * y / 6f), 1f)
+                if (pts.size >= 2) {
+                    val path = Path().apply {
+                        moveTo(pts.first().x, pts.first().y)
+                        pts.drop(1).forEach { lineTo(it.x, it.y) }
+                        if (pts.size >= 3) close()
+                    }
+                    drawPath(path, Color(0xAA54B7D9), style = Stroke(width = 2.dp.toPx()))
+                }
+                pts.forEachIndexed { i, p ->
+                    drawCircle(if (i == pts.lastIndex) Color(0xFFFFD166) else Color.White, 5.dp.toPx(), p)
+                }
+                if (pts.size < 3) {
+                    drawContext.canvas.nativeCanvas.let { }
+                }
+            }
+            Text("Tap the preview to add mask vertices. Three or more points create a closed polygon.", color = DIM, fontSize = 9.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Feather", color = DIM, fontSize = 10.sp)
+                Edt(featherText, Modifier.width(58.dp), true) {
+                    featherText = it
+                    it.toFloatOrNull()?.let { v ->
+                        comp?.mark()
+                        layer.maskFeather = v.coerceIn(0f, 100f)
+                        comp?.invalidateFrames()
+                    }
+                }
+                Text("Opacity %", color = DIM, fontSize = 10.sp)
+                Edt(opacityText, Modifier.width(48.dp), true) {
+                    opacityText = it
+                    it.toFloatOrNull()?.let { v ->
+                        comp?.mark()
+                        layer.maskOpacity = v.coerceIn(0f, 100f) / 100f
+                        comp?.invalidateFrames()
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlatBtn("Rectangle", c) {
+                    comp?.mark()
+                    layer.maskPoints.clear()
+                    layer.maskPoints.addAll(listOf(PathPoint(.15f,.15f),PathPoint(.85f,.15f),PathPoint(.85f,.85f),PathPoint(.15f,.85f)))
+                    layer.maskEnabled = true
+                    comp?.invalidateFrames()
+                }
+                FlatBtn("Ellipse", c) {
+                    comp?.mark()
+                    layer.maskPoints.clear()
+                    for (i in 0 until 32) {
+                        val a = (i * 6.2831853f / 32f)
+                        layer.maskPoints.add(PathPoint(.5f + .38f * kotlin.math.cos(a), .5f + .38f * kotlin.math.sin(a)))
+                    }
+                    layer.maskEnabled = true
+                    comp?.invalidateFrames()
+                }
+            }
+            Text("Mask path vertices and feather are saved in the project. Animated vertex paths and multi-mask compositing are not included in this first mask pass.", color = DIM, fontSize = 9.sp)
+        }
+    }
+}

@@ -749,7 +749,7 @@ fun GraphView(
             val k = g.p.k
             for (i in k.indices) {
                 val f = k[i]
-                if (f.sel && f.ip == 1) {
+                if (f.sel && (f.ip == 1 || speedMode)) {
                     if (i + 1 < k.size) {
                         val dtn = k[i + 1].t - f.t
                         val oi = f.oi.coerceIn(0.001f, 1f)
@@ -774,7 +774,7 @@ fun GraphView(
             for (i in g.p.k.indices) {
                 val f = g.p.k[i]
                 val dx = o.x - xp(f.t)
-                val dy = o.y - yOf(g.toD(f.v))
+                val dy = o.y - yOf(if (speedMode) speedAt(g, f.t) else g.toD(f.v))
                 val dd = sqrt(dx * dx + dy * dy)
                 if (dd < bd) {
                     bd = dd
@@ -942,7 +942,7 @@ fun GraphView(
                     val f = k[i]
                     val kx = xp(f.t)
                     val ky = yOf(if (speedMode) speedAt(g, f.t) else g.toD(f.v))
-                    if (f.sel && f.ip == 1) {
+                    if (f.sel && (f.ip == 1 || speedMode)) {
                         if (i + 1 < k.size) {
                             val dtn = k[i + 1].t - f.t
                             val oi = f.oi.coerceIn(0.001f, 1f)
@@ -955,7 +955,7 @@ fun GraphView(
                             val dtp = f.t - k[i - 1].t
                             val ii = f.ii.coerceIn(0.001f, 1f)
                             val hx = xp(f.t - ii * dtp)
-                            val hy = if (speedMode) yOf(g.toD(f.v - f.isp) - g.toD(f.v)) else yOf(g.toD(f.v - f.isp * ii * dtp))
+                            val hy = if (speedMode) yOf(g.toD(f.v + f.isp) - g.toD(f.v)) else yOf(g.toD(f.v - f.isp * ii * dtp))
                             drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
                             drawCircle(Color.White, 5f, Offset(hx, hy))
                         }

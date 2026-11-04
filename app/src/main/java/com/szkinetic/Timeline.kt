@@ -944,6 +944,21 @@ fun TimePanel(
                                 }
                             }
                         }
+                        for (marker in comp.markers) {
+                            val mx = xp(marker.time)
+                            if (mx >= -8f && mx <= size.width + 8f) {
+                                val mc = Color(marker.color)
+                                drawLine(mc.copy(alpha = 0.75f), Offset(mx, 0f), Offset(mx, size.height), 1.2f)
+                                val pin = Path().apply {
+                                    moveTo(mx - 5.dp.toPx(), 0f)
+                                    lineTo(mx + 5.dp.toPx(), 0f)
+                                    lineTo(mx, 8.dp.toPx())
+                                    close()
+                                }
+                                drawPath(pin, mc)
+                                drawText(lt.get("marker_" + marker.label, marker.label, GTS), topLeft = Offset(mx + 6.dp.toPx(), 1.dp.toPx()))
+                            }
+                        }
                     }
                     if (graph) {
                         Box(
@@ -989,6 +1004,7 @@ fun TimePanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             FrameTime()
+            FlatBtn("+ Marker", c) { comp.addMarker() }
             Spacer(Modifier.weight(1f))
             FlatBtn("Toggle Switches / Modes", c) { modes = !modes }
             Spacer(Modifier.weight(1f))

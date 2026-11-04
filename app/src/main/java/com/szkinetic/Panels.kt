@@ -581,7 +581,7 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
         Box(Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp)) {
             Text(
-                "12 effects have live GPU rendering and adjustable strength. Other catalogue entries are listed for discovery and are not yet implemented.",
+                "16 effects have live GPU rendering and adjustable strength. Other catalogue entries remain in the searchable catalogue while their processing implementations are developed.",
                 color = DIM,
                 fontSize = 9.sp
             )

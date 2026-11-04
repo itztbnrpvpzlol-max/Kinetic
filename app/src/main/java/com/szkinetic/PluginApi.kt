@@ -1,5 +1,8 @@
 package com.szkinetic
 
+import android.content.Context
+import org.json.JSONObject
+
 /**
  * Kinetic Plugin API v1.
  *

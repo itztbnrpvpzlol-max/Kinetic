@@ -95,6 +95,8 @@ jobs:
             "$APK_PATH"
 
       - name: Write output guide
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
         run: |
           cat > decompiled/README.txt <<'EOF'
           Kinetic APK decompilation results

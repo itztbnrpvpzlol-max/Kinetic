@@ -452,7 +452,15 @@ object VDecs {
 }
 
 object Aud {
-    private val ps = HashMap<Layer, MediaPlayer>()
+    private data class Track(
+        val key: String,
+        val layer: Layer,
+        val time: Float,
+        val active: Boolean,
+        val muted: Boolean
+    )
+
+    private val ps = HashMap<String, MediaPlayer>()
     private val ok = HashSet<MediaPlayer>()
     private val go = HashSet<MediaPlayer>()
     private val fix = HashMap<MediaPlayer, Long>()
@@ -461,7 +469,6 @@ object Aud {
         MediaPlayer().also {
             it.setDataSource(m.path)
             it.setOnPreparedListener { p -> ok.add(p) }
-            // start only once the seek has landed, so audio never begins at the wrong position
             it.setOnSeekCompleteListener { p ->
                 if (go.remove(p)) {
                     try {
@@ -492,53 +499,80 @@ object Aud {
         }
     }
 
-    private fun prune(c: Comp) {
-        if (ps.isEmpty()) return
-        val ei = ps.entries.iterator()
-        while (ei.hasNext()) {
-            val e = ei.next()
-            if (e.key !in c.layers) {
-                rel(e.value)
-                ei.remove()
+    private fun collect(
+        c: Comp,
+        time: Float,
+        active: Boolean,
+        muted: Boolean,
+        prefix: String,
+        chain: Set<String>,
+        out: MutableList<Track>
+    ) {
+        if (c.id in chain || chain.size > 8) return
+        val next = chain + c.id
+        val solo = c.layers.any { it.solo }
+        for (l in c.layers) {
+            val inRange = time >= l.start && time < l.end(c.dur)
+            val layerActive = active && inRange && (!solo || l.solo)
+            val layerMuted = muted || l.mute
+            if (l.preCompId.isNotEmpty()) {
+                val nested = c.proj?.comps?.firstOrNull { it.id == l.preCompId } ?: continue
+                collect(
+                    nested, time - l.start + l.off, layerActive, layerMuted,
+                    "$prefix/${l.uid}", next, out
+                )
+            } else if (l.kind >= 1) {
+                out.add(Track("$prefix/${l.uid}", l, time - l.start + l.off, layerActive, layerMuted))
             }
         }
     }
 
-    // Prepare players ahead of time so pressing play has no start-up delay.
-    fun warm(c: Comp) {
-        prune(c)
-        val lib = c.lib
-        for (l in c.layers) {
-            if (l.kind < 1 || l.mute || ps.containsKey(l) || ps.size >= 8) continue
-            val m = lib.firstOrNull { it.id == l.mid } ?: continue
-            val p = mk(m) ?: continue
-            ps[l] = p
+    private fun tracks(c: Comp, time: Float): List<Track> =
+        ArrayList<Track>().also { collect(c, time, true, false, c.id, emptySet(), it) }
+
+    private fun prune(keep: Set<String>) {
+        val it = ps.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.key !in keep) {
+                rel(e.value)
+                it.remove()
+            }
         }
     }
 
-    // Called ~8 times a second while playing (and once on stop): starts, pauses and only rarely corrects drift.
+    // Prepare audio inside nested pre-comps too, so playback can start without a delay.
+    fun warm(c: Comp) {
+        val ts = tracks(c, c.time)
+        prune(ts.map { it.key }.toSet())
+        for (t in ts) {
+            if (t.layer.kind < 1 || ps.containsKey(t.key) || ps.size >= 8) continue
+            val m = c.lib.firstOrNull { it.id == t.layer.mid } ?: continue
+            val p = mk(m) ?: continue
+            ps[t.key] = p
+        }
+    }
+
+    // Called ~8 times a second while playing (and once on stop).
     fun sync(c: Comp, on: Boolean) {
-        if (ps.isEmpty() && !on) return
-        prune(c)
+        val ts = tracks(c, c.time)
+        prune(ts.map { it.key }.toSet())
         val now = System.nanoTime()
-        val lib = c.lib
-        val ls = c.layers
-        val solo = ls.any { it.solo }
-        for (i in 0 until ls.size) {
-            val l = ls[i]
+        for (t in ts) {
+            val l = t.layer
             if (l.kind < 1) continue
-            val act = on && !l.mute && (!solo || l.solo) && c.time >= l.start && c.time < l.end(c.dur)
-            val p = ps[l]
+            val act = on && t.active && !t.muted
+            var p = ps[t.key]
             try {
                 if (act) {
-                    val q = p ?: run {
-                        val m = lib.firstOrNull { it.id == l.mid }
-                        val np = if (m != null) mk(m) else null
-                        if (np != null) ps[l] = np
-                        np
-                    } ?: continue
+                    if (p == null) {
+                        val m = c.lib.firstOrNull { it.id == l.mid }
+                        p = if (m != null) mk(m) else null
+                        if (p != null) ps[t.key] = p
+                    }
+                    val q = p ?: continue
                     if (!ok.contains(q)) continue
-                    val want = ((c.time - l.start + l.off) * 1000f).toInt()
+                    val want = (t.time * 1000f).toInt()
                     if (q.isPlaying) {
                         val d = abs(q.currentPosition - want)
                         if (d > 250 && now - (fix[q] ?: 0L) > 1_000_000_000L) {

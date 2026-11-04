@@ -3,6 +3,7 @@ package com.szkinetic
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -308,6 +309,7 @@ fun CompPanel(
     var vw by remember { mutableStateOf(1f) }
     var vh by remember { mutableStateOf(1f) }
     var gridOn by remember(comp.id) { mutableStateOf(false) }
+    var gizmoLightId by remember(comp.id) { mutableStateOf("") }
     val penPoints = remember(comp.id) { mutableStateListOf<PathPoint>() }
     var penColor by remember(comp.id) { mutableLongStateOf(0xFF4A90E2) }
     val lp = remember { floatArrayOf(0f, 0f) }
@@ -322,6 +324,91 @@ fun CompPanel(
             vh = maxOf(it.height.toFloat(), 1f)
         }) {
             Viewer(comp, res, zm, px, py, Modifier.fillMaxSize())
+            // Editable scene-light gizmos share the exact fit/zoom/pan transform used by the viewer.
+            if (comp.lights.isNotEmpty()) {
+                Canvas(
+                    Modifier.fillMaxSize().pointerInput(comp.id, comp.lights.size, zm, px, py, vw, vh) {
+                        fun lightCenter(light: SceneLight): Offset {
+                            val scale = minOf(vw / comp.w.toFloat(), vh / comp.h.toFloat()) * zm
+                            val cw = comp.w * scale
+                            val ch = comp.h * scale
+                            val left = (vw - cw) / 2f + px * vw
+                            val top = (vh - ch) / 2f - py * vh
+                            return if (light.type == 0) Offset(left + 28.dp.toPx(), top + 28.dp.toPx())
+                            else Offset(left + (light.xAnim.get(comp.time) + 1f) * 0.5f * cw, top + (1f - light.yAnim.get(comp.time)) * 0.5f * ch)
+                        }
+                        fun hit(pos: Offset): SceneLight? = comp.lights.minByOrNull { light ->
+                            val center = lightCenter(light)
+                            val dx = center.x - pos.x
+                            val dy = center.y - pos.y
+                            dx * dx + dy * dy
+                        }?.takeIf {
+                            val center = lightCenter(it)
+                            val dx = center.x - pos.x
+                            val dy = center.y - pos.y
+                            dx * dx + dy * dy <= 34.dp.toPx() * 34.dp.toPx()
+                        }
+                        detectDragGestures(
+                            onDragStart = { pos ->
+                                val picked = hit(pos)
+                                gizmoLightId = picked?.id ?: ""
+                                if (picked != null) comp.mark()
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                val light = comp.lights.firstOrNull { it.id == gizmoLightId } ?: return@detectDragGestures
+                                val scale = minOf(vw / comp.w.toFloat(), vh / comp.h.toFloat()) * zm
+                                val cw = comp.w * scale
+                                val ch = comp.h * scale
+                                if (cw <= 0f || ch <= 0f) return@detectDragGestures
+                                fun setAt(prop: Prop, value: Float) {
+                                    if (prop.k.isEmpty()) prop.sv = value
+                                    else {
+                                        val at = comp.time
+                                        val idx = prop.k.indexOfLast { kotlin.math.abs(it.t - at) <= comp.eps() }
+                                        if (idx >= 0) prop.k[idx] = prop.k[idx].copy(v = value)
+                                        else prop.k.add(Kf(at, value))
+                                        prop.k.sortBy { it.t }
+                                    }
+                                }
+                                if (light.type == 1) {
+                                    setAt(light.xAnim, (light.xAnim.get(comp.time) + amount.x * 2f / cw).coerceIn(-4f, 4f))
+                                    setAt(light.yAnim, (light.yAnim.get(comp.time) - amount.y * 2f / ch).coerceIn(-4f, 4f))
+                                } else {
+                                    setAt(light.azimuthAnim, (light.azimuthAnim.get(comp.time) + amount.x * 0.7f).coerceIn(-180f, 180f))
+                                    setAt(light.elevationAnim, (light.elevationAnim.get(comp.time) - amount.y * 0.7f).coerceIn(-89f, 89f))
+                                }
+                                comp.invalidateFrames()
+                            }
+                        )
+                    }
+                ) {
+                    val scale = minOf(size.width / comp.w.toFloat(), size.height / comp.h.toFloat()) * zm
+                    val cw = comp.w * scale
+                    val ch = comp.h * scale
+                    val left = (size.width - cw) / 2f + px * size.width
+                    val top = (size.height - ch) / 2f - py * size.height
+                    comp.lights.forEach { light ->
+                        val selected = light.id == gizmoLightId
+                        val center = if (light.type == 0) Offset(left + 28.dp.toPx(), top + 28.dp.toPx())
+                        else Offset(left + (light.xAnim.get(comp.time) + 1f) * 0.5f * cw, top + (1f - light.yAnim.get(comp.time)) * 0.5f * ch)
+                        val color = if (light.type == 0) Color(0xFFFFC857) else Color(0xFF55D6FF)
+                        val radius = if (selected) 13.dp.toPx() else 10.dp.toPx()
+                        drawCircle(color.copy(alpha = 0.16f), radius * 1.8f, center)
+                        drawCircle(color, radius, center, style = Stroke(width = if (selected) 2.5.dp.toPx() else 1.6.dp.toPx()))
+                        drawLine(color, Offset(center.x - radius * 1.5f, center.y), Offset(center.x + radius * 1.5f, center.y), 1.4.dp.toPx())
+                        drawLine(color, Offset(center.x, center.y - radius * 1.5f), Offset(center.x, center.y + radius * 1.5f), 1.4.dp.toPx())
+                        if (light.type == 0) {
+                            for (a in 0..7) {
+                                val angle = a * (Math.PI / 4.0)
+                                val inner = radius + 3.dp.toPx()
+                                val outer = inner + 5.dp.toPx()
+                                drawLine(color, Offset(center.x + kotlin.math.cos(angle).toFloat() * inner, center.y + kotlin.math.sin(angle).toFloat() * inner), Offset(center.x + kotlin.math.cos(angle).toFloat() * outer, center.y + kotlin.math.sin(angle).toFloat() * outer), 1.5.dp.toPx())
+                            }
+                        }
+                    }
+                }
+            }
             if (gridOn) {
                 Canvas(Modifier.fillMaxSize()) {
                     val stepX = size.width / 10f

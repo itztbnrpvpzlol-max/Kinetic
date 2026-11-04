@@ -167,7 +167,11 @@ class Rnd : GLSurfaceView.Renderer {
     private var pg = 0
     private var W = 0
     private var H = 0
-    private var tx = LinkedHashMap<Bitmap, Int>(16, 0.75f, true)
+    // LRU cache is owned by the GL thread; keep decoded bitmap textures warm between frames.
+    private var tx = LinkedHashMap<Bitmap, Int>(32, 0.75f, true)
+    private var textureBytes = 0L
+    private val maxTextureBytes = 48L * 1024L * 1024L
+    private val maxTextureCount = 32
     private val ds = IntArray(1)
     private var lp = 0
     private var uE = 0
@@ -190,7 +194,8 @@ class Rnd : GLSurfaceView.Renderer {
 
     override fun onSurfaceCreated(g: GL10?, c: EGLConfig?) {
         pg = prog()
-        tx = LinkedHashMap(16, 0.75f, true)
+        tx = LinkedHashMap(32, 0.75f, true)
+        textureBytes = 0L
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glDisable(GLES20.GL_DITHER)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -239,6 +244,7 @@ class Rnd : GLSurfaceView.Renderer {
             if (id == null) {
                 id = up(bm)
                 tx[bm] = id
+                textureBytes += bm.byteCount.toLong().coerceAtLeast(0L)
             }
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
             if (cm != 1) {
@@ -317,10 +323,12 @@ class Rnd : GLSurfaceView.Renderer {
             }
         }
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
-        if (tx.size > 8) {
+        // Evict least-recently-used textures only when the count or memory budget is exceeded.
+        if (tx.size > maxTextureCount || textureBytes > maxTextureBytes) {
             val ei = tx.entries.iterator()
-            while (tx.size > 8 && ei.hasNext()) {
+            while ((tx.size > maxTextureCount || textureBytes > maxTextureBytes) && ei.hasNext()) {
                 val e = ei.next()
+                textureBytes = (textureBytes - e.key.byteCount.toLong().coerceAtLeast(0L)).coerceAtLeast(0L)
                 ds[0] = e.value
                 GLES20.glDeleteTextures(1, ds, 0)
                 ei.remove()

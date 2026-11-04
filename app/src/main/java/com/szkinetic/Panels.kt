@@ -592,6 +592,65 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
 }
 
 
+// ---------------------------------------------------------------- 3D camera controls
+@Composable
+fun CameraPanel(comp: Comp?, c: Cur, m: Modifier) {
+    val camera = comp
+    var xText by remember(camera?.id) { mutableStateOf("%.3f".format(camera?.cameraX ?: 0f)) }
+    var yText by remember(camera?.id) { mutableStateOf("%.3f".format(camera?.cameraY ?: 0f)) }
+    var distanceText by remember(camera?.id) { mutableStateOf("%.2f".format(camera?.cameraDistance ?: 3f)) }
+    var fovText by remember(camera?.id) { mutableStateOf("%.1f".format(camera?.cameraFov ?: 50f)) }
+    Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("COMPOSITION CAMERA", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        if (camera == null) {
+            Text("Open a composition to configure its camera.", color = DIM, fontSize = 10.sp)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlatBtn(if (camera.cameraEnabled) "Camera On" else "Camera Off", c, camera.cameraEnabled) {
+                    camera.mark()
+                    camera.cameraEnabled = !camera.cameraEnabled
+                    camera.invalidateFrames()
+                }
+                Text("Perspective projection for 3D layers", color = DIM, fontSize = 9.sp)
+            }
+            Text("Camera position", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("X", color = DIM, fontSize = 10.sp)
+                Edt(xText, Modifier.width(68.dp), true) { value ->
+                    xText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let {
+                        camera.mark(); camera.cameraX = it.coerceIn(-10f, 10f); camera.invalidateFrames()
+                    }
+                }
+                Text("Y", color = DIM, fontSize = 10.sp)
+                Edt(yText, Modifier.width(68.dp), true) { value ->
+                    yText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let {
+                        camera.mark(); camera.cameraY = it.coerceIn(-10f, 10f); camera.invalidateFrames()
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Distance", color = DIM, fontSize = 10.sp)
+                Edt(distanceText, Modifier.width(68.dp), true) { value ->
+                    distanceText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let {
+                        camera.mark(); camera.cameraDistance = it.coerceIn(0.25f, 100f); camera.invalidateFrames()
+                    }
+                }
+                Text("FOV °", color = DIM, fontSize = 10.sp)
+                Edt(fovText, Modifier.width(58.dp), true) { value ->
+                    fovText = value
+                    value.toFloatOrNull()?.takeIf { it.isFinite() }?.let {
+                        camera.mark(); camera.cameraFov = it.coerceIn(15f, 100f); camera.invalidateFrames()
+                    }
+                }
+            }
+            Text("Camera settings are saved with the composition. Only layers switched to 3D use this camera; 2D layers remain unchanged. This pass uses a 2.5D plane projection, not a full 3D mesh/depth-buffer renderer.", color = DIM, fontSize = 9.sp)
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Motion tracking & stabilization
 @Composable
 fun TrackingPanel(comp: Comp?, c: Cur, m: Modifier) {

@@ -25,13 +25,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
 
-val PANELS = listOf("proj", "comp", "time", "info", "browser")
+val PANELS = listOf("proj", "comp", "time", "info", "browser", "plugins")
 
 fun panelTitle(id: String): String = when (id) {
     "proj" -> "Project"
     "comp" -> "Composition"
     "time" -> "Timeline"
     "browser" -> "Effects & Presets"
+    "plugins" -> "Plugins"
     else -> "Info"
 }
 
@@ -59,7 +60,7 @@ fun defaultTree(): LNode = LSplit(
             listOf(
                 LGroup(listOf("proj")),
                 LGroup(listOf("comp")),
-                LGroup(listOf("info", "browser"))
+                LGroup(listOf("info", "browser", "plugins"))
             ),
             listOf(0.22f, 0.56f, 0.22f)
         ),

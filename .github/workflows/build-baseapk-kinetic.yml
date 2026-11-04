@@ -35,9 +35,10 @@ jobs:
           curl -L --fail -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
       - name: Apply Kinetic home UI patch
         run: |
-          mkdir -p decompiled/apktool/res/layout decompiled/apktool/res/drawable
+          mkdir -p decompiled/apktool/res/layout decompiled/apktool/res/drawable decompiled/apktool/res/values
           cp baseapk-patch/res/layout/activity_kinetic_home.xml decompiled/apktool/res/layout/
           cp baseapk-patch/res/drawable/kinetic_*.xml decompiled/apktool/res/drawable/
+          cp baseapk-patch/res/values/kinetic_attrs.xml decompiled/apktool/res/values/
           python3 - <<'PY'
           from pathlib import Path
           p = Path('decompiled/apktool/smali/com/angkin/keyflow/MainActivity.smali')

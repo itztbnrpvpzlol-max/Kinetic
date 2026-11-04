@@ -3,6 +3,9 @@ package com.szkinetic
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.BlurMaskFilter
 import android.graphics.Path as AndroidPath
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -354,6 +357,11 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     val pathPoints = mutableStateListOf<PathPoint>()
     var pathClosed by mutableStateOf(true)
     @Transient var pathBitmap: Bitmap? = null
+    val maskPoints = mutableStateListOf<PathPoint>()
+    var maskFeather by mutableFloatStateOf(0f)
+    var maskOpacity by mutableFloatStateOf(1f)
+    var maskInverted by mutableStateOf(false)
+    var maskEnabled by mutableStateOf(false)
     var trackAnchorX by mutableFloatStateOf(0.5f)
     var trackAnchorY by mutableFloatStateOf(0.5f)
     var trackPatchSize by mutableIntStateOf(15)
@@ -372,6 +380,38 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         timeRemap.k.clear()
         timeRemap.k.add(Kf(start, off))
         timeRemap.k.add(Kf(start + len, off + len))
+    }
+
+    fun applyMask(source: Bitmap): Bitmap {
+        if (!maskEnabled || maskPoints.size < 3 || source.isRecycled) return source
+        val output = source.copy(Bitmap.Config.ARGB_8888, true) ?: return source
+        val mask = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ALPHA_8)
+        val canvas = AndroidCanvas(mask)
+        val path = AndroidPath()
+        if (maskInverted) {
+            path.fillType = AndroidPath.FillType.EVEN_ODD
+            path.addRect(0f, 0f, source.width.toFloat(), source.height.toFloat(), AndroidPath.Direction.CW)
+        }
+        maskPoints.forEachIndexed { index, point ->
+            val x = point.x * source.width
+            val y = point.y * source.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            alpha = (maskOpacity * 255f).toInt().coerceIn(0, 255)
+            if (maskFeather > 0f) {
+                val radius = (maskFeather * minOf(source.width, source.height) / 1000f).coerceAtLeast(0.5f)
+                maskFilter = BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL)
+            }
+        }
+        canvas.drawPath(path, maskPaint)
+        AndroidCanvas(output).drawBitmap(mask, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+        })
+        mask.recycle()
+        return output
     }
 
     fun renderEffects(): List<LayerEffect> =
@@ -488,6 +528,11 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.pathPoints.addAll(pathPoints)
         q.pathClosed = pathClosed
         q.pathBitmap = pathBitmap
+        q.maskPoints.addAll(maskPoints)
+        q.maskFeather = maskFeather
+        q.maskOpacity = maskOpacity
+        q.maskInverted = maskInverted
+        q.maskEnabled = maskEnabled
         q.trackAnchorX = trackAnchorX
         q.trackAnchorY = trackAnchorY
         q.trackPatchSize = trackPatchSize
@@ -529,6 +574,13 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         for (pt in pathPoints) pts.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
         o.put("path", pts)
         o.put("pathClosed", pathClosed)
+        o.put("maskEnabled", maskEnabled)
+        o.put("maskFeather", maskFeather.toDouble())
+        o.put("maskOpacity", maskOpacity.toDouble())
+        o.put("maskInverted", maskInverted)
+        val mask = JSONArray()
+        for (pt in maskPoints) mask.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
+        o.put("maskPoints", mask)
         o.put("trackX", trackAnchorX.toDouble())
         o.put("trackY", trackAnchorY.toDouble())
         o.put("trackSize", trackPatchSize)
@@ -578,6 +630,15 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
                 if (pt.length() >= 2) l.pathPoints.add(PathPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat()))
             }
             l.pathClosed = o.optBoolean("pathClosed", true)
+            l.maskEnabled = o.optBoolean("maskEnabled", false)
+            l.maskFeather = o.optDouble("maskFeather", 0.0).toFloat().coerceIn(0f, 100f)
+            l.maskOpacity = o.optDouble("maskOpacity", 1.0).toFloat().coerceIn(0f, 1f)
+            l.maskInverted = o.optBoolean("maskInverted", false)
+            val mask = o.optJSONArray("maskPoints")
+            if (mask != null) for (i in 0 until minOf(mask.length(), 512)) {
+                val pt = mask.optJSONArray(i) ?: continue
+                if (pt.length() >= 2) l.maskPoints.add(PathPoint(pt.optDouble(0).toFloat().coerceIn(0f, 1f), pt.optDouble(1).toFloat().coerceIn(0f, 1f)))
+            }
             l.trackAnchorX = o.optDouble("trackX", 0.5).toFloat().coerceIn(0f, 1f)
             l.trackAnchorY = o.optDouble("trackY", 0.5).toFloat().coerceIn(0f, 1f)
             l.trackPatchSize = o.optInt("trackSize", 15).coerceIn(7, 41)
@@ -655,6 +716,7 @@ object KClip {
 data class CompMarker(val time: Float, val label: String, val color: Long = 0xFFFFC857)
 data class PathPoint(val x: Float, val y: Float)
 data class TrackSample(val time: Float, val x: Float, val y: Float, val confidence: Float)
+data class MaskShape(val points: List<PathPoint>, val feather: Float = 0f, val opacity: Float = 1f, val inverted: Boolean = false, val enabled: Boolean = true)
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()
@@ -1285,6 +1347,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                 val media = lib.firstOrNull { it.id == l.mid } ?: continue
                 val sourceTime = if (l.timeRemapEnabled) l.timeRemap.get(t) else t - l.start + l.off
                 bm = Frames.get(media, sourceTime, renderPlaying) ?: continue
+                if (l.maskEnabled) bm = l.applyMask(bm)
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp

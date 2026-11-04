@@ -42,12 +42,12 @@ import kotlin.math.abs
 
 // ---------------------------------------------------------------- text / number editing
 @Composable
-fun Edt(init: String, mod: Modifier, num: Boolean, onDone: (String) -> Unit) {
+fun Edt(init: String, mod: Modifier, num: Boolean, autoFocus: Boolean = false, onDone: (String) -> Unit) {
     var tx by remember { mutableStateOf(init) }
     var fin by remember { mutableStateOf(false) }
     var got by remember { mutableStateOf(false) }
     val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { fr.requestFocus() }
+    LaunchedEffect(autoFocus) { if (autoFocus) fr.requestFocus() }
     BasicTextField(
         value = tx,
         onValueChange = { tx = it },
@@ -128,7 +128,7 @@ fun NumField(
         Alignment.CenterStart
     ) {
         if (ed) {
-            Edt("%.2f".format(v), Modifier.widthIn(min = 40.dp).background(Color(0xFF1A1A1A)).padding(2.dp), true) { s ->
+            Edt("%.2f".format(v), Modifier.widthIn(min = 40.dp).background(Color(0xFF1A1A1A)).padding(2.dp), true, autoFocus = true) { s ->
                 ed = false
                 val x = s.trim().replace(',', '.').toFloatOrNull()
                 if (x != null && x.isFinite()) {
@@ -568,7 +568,7 @@ fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
 @Composable
 fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
     var query by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf("Blur & Sharpen") }
+    var expanded by remember { mutableStateOf("Color Correction") }
     val q = query.trim()
     val visibleCategories = EffectCatalog.categories.mapNotNull { category ->
         val matches = if (q.isEmpty()) category.effects else category.effects.filter {
@@ -578,9 +578,12 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
         if (matches.isEmpty()) null else category to matches
     }
+    val target = comp?.selected()?.firstOrNull()
+    val stack = target?.renderEffects().orEmpty()
+
     Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(
-            Modifier.fillMaxWidth().height(30.dp).background(Color(0xFF171717), RoundedCornerShape(3.dp))
+            Modifier.fillMaxWidth().height(34.dp).background(Color(0xFF171717), RoundedCornerShape(3.dp))
                 .border(1.dp, EDG, RoundedCornerShape(3.dp)).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -591,92 +594,132 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 singleLine = true,
-                textStyle = TextStyle(color = TXT, fontSize = 11.sp),
+                textStyle = TextStyle(color = TXT, fontSize = 12.sp),
                 cursorBrush = SolidColor(AC),
                 decorationBox = { inner ->
                     Box(Modifier.fillMaxSize(), Alignment.CenterStart) {
-                        if (query.isEmpty()) Text("Search 500 effects", color = DIM, fontSize = 11.sp)
+                        if (query.isEmpty()) Text("Search implemented effects", color = DIM, fontSize = 11.sp)
                         inner()
                     }
                 }
             )
             if (query.isNotEmpty()) {
-                Text("×", color = DIM, fontSize = 15.sp, modifier = Modifier.cur(c) { query = "" }.padding(horizontal = 3.dp))
+                Text("×", color = DIM, fontSize = 18.sp, modifier = Modifier.cur(c) { query = "" }.padding(horizontal = 4.dp))
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("EFFECTS LIBRARY", color = DIM, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            Text("EFFECTS", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text("${EffectCatalog.all.size} effects  •  ${EffectCatalog.categories.size} categories", color = VB, fontSize = 9.sp)
+            Text("${RenderEffects.all.size} working effects", color = VB, fontSize = 10.sp)
         }
-        val target = comp?.selected()?.firstOrNull()
-        val active = target?.let { RenderEffects.byId(it.effectId) }
+
         Column(
-            Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(7.dp),
+            Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Text(if (target == null) "NO LAYER SELECTED" else "SELECTED: ${target.name}", color = DIM, fontSize = 9.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(active?.name ?: "No effect applied", color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                if (active != null && comp != null) {
-                    FlatBtn("−", c) { comp.adjustEffectAmount(-0.05f) }
-                    Text("${(target!!.effectAmount * 100f).toInt()}%", color = VB, fontSize = 9.sp)
-                    FlatBtn("+", c) { comp.adjustEffectAmount(0.05f) }
-                    FlatBtn("Remove", c) { comp.clearEffect() }
+                Text("EFFECT STACK", color = DIM, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("${stack.size}/8", color = VB, fontSize = 9.sp)
+            }
+            if (target == null) {
+                Text("Select a layer in the timeline.", color = DIM, fontSize = 10.sp)
+            } else if (stack.isEmpty()) {
+                Text("No effects applied. Choose an effect below.", color = DIM, fontSize = 10.sp)
+            } else {
+                stack.forEachIndexed { index, entry ->
+                    val name = RenderEffects.byId(entry.id)?.name ?: "Unknown effect"
+                    Row(
+                        Modifier.fillMaxWidth().background(Color(0xFF292929), RoundedCornerShape(2.dp)).padding(horizontal = 5.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(name, color = TXT, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                        FlatBtn("−", c) {
+                            comp?.mark()
+                            target.removeEffect(index)
+                            comp?.invalidateFrames()
+                        }
+                        FlatBtn("+", c) {
+                            comp?.mark()
+                            target.setEffectAmount(index, entry.amount + 0.05f)
+                            comp?.invalidateFrames()
+                        }
+                        Text("${(entry.amount * 100f).toInt()}%", color = VB, fontSize = 9.sp)
+                        FlatBtn("↑", c, index == 0) {
+                            if (index > 0) {
+                                comp?.mark()
+                                target.moveEffect(index, index - 1)
+                                comp?.invalidateFrames()
+                            }
+                        }
+                        FlatBtn("↓", c, index == stack.lastIndex) {
+                            if (index < stack.lastIndex) {
+                                comp?.mark()
+                                target.moveEffect(index, index + 1)
+                                comp?.invalidateFrames()
+                            }
+                        }
+                    }
                 }
             }
-            Text(
-                if (target == null) "Select a layer in the timeline to apply an effect."
-                else "Tap a supported effect below to apply it to the selected layer(s).",
-                color = DIM, fontSize = 8.sp
-            )
+            if (target != null && stack.isNotEmpty()) {
+                FlatBtn("Remove All", c) {
+                    comp?.mark()
+                    target.effects.clear()
+                    target.effectId = 0
+                    target.effectAmount = 0.5f
+                    comp?.invalidateFrames()
+                }
+            }
         }
-        Column(Modifier.weight(1f).fillMaxWidth().then(Modifier.vscr(c, rememberScrollState()))) {
+
+        Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rememberScrollState())) {
             if (visibleCategories.isEmpty()) {
                 Text("No matching effects", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
             } else {
                 visibleCategories.forEach { (category, matches) ->
                     val isExpanded = q.isNotEmpty() || expanded == category.name
                     Row(
-                        Modifier.fillMaxWidth().height(31.dp)
+                        Modifier.fillMaxWidth().height(34.dp)
                             .border(0.5.dp, Color(0xFF343434), RoundedCornerShape(2.dp))
                             .background(if (isExpanded) Color(0xFF343B46) else Color(0xFF292929))
                             .cur(c) { expanded = if (expanded == category.name) "" else category.name }
                             .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(if (isExpanded) "▾" else "▸", color = VB, fontSize = 10.sp)
+                        Text(if (isExpanded) "▾" else "▸", color = VB, fontSize = 11.sp)
                         Spacer(Modifier.width(7.dp))
-                        Text(category.name, color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                        Text("${matches.size}", color = DIM, fontSize = 9.sp)
+                        Text(category.name, color = TXT, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Text("${matches.size}", color = DIM, fontSize = 10.sp)
                     }
                     if (isExpanded) {
                         matches.forEach { effect ->
                             val renderEffect = RenderEffects.byName(effect.name)
                             Row(
-                                Modifier.fillMaxWidth().height(27.dp)
-                                    .background(if (renderEffect != null && comp != null) Color(0xFF202020) else Color(0xFF191919))
-                                    .cur(c) { if (renderEffect != null) comp?.applyEffect(renderEffect.id) }
+                                Modifier.fillMaxWidth().height(34.dp)
+                                    .background(Color(0xFF202020))
+                                    .cur(c) {
+                                        if (renderEffect != null && comp != null) {
+                                            comp.mark()
+                                            comp.applyEffect(renderEffect.id)
+                                            comp.invalidateFrames()
+                                        }
+                                    }
                                     .padding(start = 25.dp, end = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(Modifier.size(5.dp).background(if (renderEffect != null) AC else Color(0xFF555555), RoundedCornerShape(1.dp)))
+                                Box(Modifier.size(6.dp).background(AC, RoundedCornerShape(1.dp)))
                                 Spacer(Modifier.width(8.dp))
-                                Text(effect.name, color = if (renderEffect != null) TXT else DIM, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                                Text(if (renderEffect != null) "APPLY" else "CATALOG", color = if (renderEffect != null) VB else DIM, fontSize = 7.sp)
+                                Text(effect.name, color = TXT, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                Text("ADD", color = VB, fontSize = 9.sp)
                             }
                         }
                     }
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp)) {
-            Text(
-                "16 effects have live GPU rendering and adjustable strength. Other catalogue entries remain in the searchable catalogue while their processing implementations are developed.",
-                color = DIM,
-                fontSize = 9.sp
-            )
-        }
+        Text("Effects are applied to the selected layer(s). Strength and order can be edited in the stack above.", color = DIM, fontSize = 9.sp)
     }
 }
 

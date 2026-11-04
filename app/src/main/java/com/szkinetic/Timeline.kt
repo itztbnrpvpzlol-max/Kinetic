@@ -544,9 +544,6 @@ fun GraphView(
         lo -= 1f
         hi += 1f
     }
-    val padv = (hi - lo) * 0.1f
-    val gmin = lo - padv
-    val gmax = hi + padv
     val byProp = HashMap<Prop, GRow>()
     for (g in rows) byProp[g.p] = g
     var hh by remember { mutableStateOf(1f) }

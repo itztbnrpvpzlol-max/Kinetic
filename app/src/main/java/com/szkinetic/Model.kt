@@ -354,6 +354,11 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     val pathPoints = mutableStateListOf<PathPoint>()
     var pathClosed by mutableStateOf(true)
     @Transient var pathBitmap: Bitmap? = null
+    var trackAnchorX by mutableFloatStateOf(0.5f)
+    var trackAnchorY by mutableFloatStateOf(0.5f)
+    var trackPatchSize by mutableIntStateOf(15)
+    var trackingStatus by mutableStateOf("Not tracked")
+    val trackSamples = mutableStateListOf<TrackSample>()
     // Legacy fields are retained so existing projects and plugin code remain compatible.
     var effectId by mutableIntStateOf(0)
     var effectAmount by mutableFloatStateOf(0.5f)
@@ -483,6 +488,11 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.pathPoints.addAll(pathPoints)
         q.pathClosed = pathClosed
         q.pathBitmap = pathBitmap
+        q.trackAnchorX = trackAnchorX
+        q.trackAnchorY = trackAnchorY
+        q.trackPatchSize = trackPatchSize
+        q.trackingStatus = trackingStatus
+        q.trackSamples.addAll(trackSamples)
         q.effectId = effectId
         q.effectAmount = effectAmount
         q.effects.addAll(effects)
@@ -519,6 +529,13 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         for (pt in pathPoints) pts.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
         o.put("path", pts)
         o.put("pathClosed", pathClosed)
+        o.put("trackX", trackAnchorX.toDouble())
+        o.put("trackY", trackAnchorY.toDouble())
+        o.put("trackSize", trackPatchSize)
+        o.put("trackStatus", trackingStatus)
+        val trk = JSONArray()
+        for (sample in trackSamples) trk.put(JSONArray().put(sample.time.toDouble()).put(sample.x.toDouble()).put(sample.y.toDouble()).put(sample.confidence.toDouble()))
+        o.put("trackSamples", trk)
         o.put("fx", effectId)
         o.put("fa", effectAmount.toDouble())
         val fx = JSONArray()
@@ -561,6 +578,15 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
                 if (pt.length() >= 2) l.pathPoints.add(PathPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat()))
             }
             l.pathClosed = o.optBoolean("pathClosed", true)
+            l.trackAnchorX = o.optDouble("trackX", 0.5).toFloat().coerceIn(0f, 1f)
+            l.trackAnchorY = o.optDouble("trackY", 0.5).toFloat().coerceIn(0f, 1f)
+            l.trackPatchSize = o.optInt("trackSize", 15).coerceIn(7, 41)
+            l.trackingStatus = o.optString("trackStatus", "Not tracked")
+            val trk = o.optJSONArray("trackSamples")
+            if (trk != null) for (i in 0 until minOf(trk.length(), 20000)) {
+                val q = trk.optJSONArray(i) ?: continue
+                if (q.length() >= 4) l.trackSamples.add(TrackSample(q.optDouble(0).toFloat(), q.optDouble(1).toFloat().coerceIn(0f, 1f), q.optDouble(2).toFloat().coerceIn(0f, 1f), q.optDouble(3).toFloat().coerceIn(-1f, 1f)))
+            }
             l.effectId = o.optInt("fx", 0).coerceIn(0, 16)
             l.effectAmount = o.optDouble("fa", 0.5).toFloat().coerceIn(0f, 1f)
             l.timeRemapEnabled = o.optBoolean("trOn", false)
@@ -628,6 +654,7 @@ object KClip {
 
 data class CompMarker(val time: Float, val label: String, val color: Long = 0xFFFFC857)
 data class PathPoint(val x: Float, val y: Float)
+data class TrackSample(val time: Float, val x: Float, val y: Float, val confidence: Float)
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var id = UUID.randomUUID().toString()

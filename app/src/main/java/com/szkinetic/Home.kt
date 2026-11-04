@@ -284,19 +284,6 @@ fun NewComp(c: Cur, defName: String, onClose: () -> Unit, onOk: (Comp) -> Unit) 
 @Composable
 fun Prefs(st: Settings, c: Cur, onClose: () -> Unit) {
     Modal("Preferences", c, foot = { Btn("Done", c, true) { onClose() } }) {
-        Text("Cursor", color = LAV, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Opt("Virtual cursor") { Tgl(st.cursor, c) { st.cursor = it; st.save() } }
-        Opt("Cursor speed") { Sld(st.speed, 0.5f, 4f, c) { st.speed = it; st.save() } }
-        Opt("Cursor size") {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Canvas(Modifier.size(52.dp).background(Color(0xFF1A1A1A), RoundedCornerShape(4.dp))) { arrow(Offset(10f, 6f), st.csize) }
-                Sld(st.csize, 0.5f, 3f, c, 110.dp) { st.csize = it; st.save() }
-            }
-        }
-        Text("Volume buttons", color = LAV, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Opt("Use as mouse buttons") { Tgl(st.vol, c) { st.vol = it; st.save() } }
-        Opt("Volume up") { Seg(BT, st.up, c) { st.up = it; st.save() } }
-        Opt("Volume down") { Seg(BT, st.down, c) { st.down = it; st.save() } }
         Text("Display", color = LAV, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Opt("UI size") { Seg(listOf("System", "Fit screen", "Custom"), st.ui, c) { st.ui = it; st.save() } }
         if (st.ui == 2) Opt("UI scale") { Sld(st.scale, 0.7f, 1.6f, c) { st.scale = it; st.save() } }
@@ -476,7 +463,6 @@ fun Root(st: Settings, c: Cur) {
                 }
             }) { Text(cr, color = GR, fontSize = 9.sp) }
             MenuView(c)
-            if (c.on) CursorLayer(c)
         }
     }
 }

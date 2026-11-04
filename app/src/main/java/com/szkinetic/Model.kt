@@ -705,7 +705,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
 
 // Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
 const val MAX_LAYER_EFFECTS = 8
-const val STR = 14 + MAX_LAYER_EFFECTS * 2
+const val STR = 18 + MAX_LAYER_EFFECTS * 2
 
 class PRef(val id: String, val name: String, val p: Prop)
 class KSnap(val p: Prop, val orig: List<Kf>)
@@ -748,6 +748,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var cameraY by mutableStateOf(0f)
     var cameraDistance by mutableStateOf(3f)
     var cameraFov by mutableStateOf(50f)
+    var lightingEnabled by mutableStateOf(false)
+    var lightAzimuth by mutableStateOf(-35f)
+    var lightElevation by mutableStateOf(55f)
+    var lightIntensity by mutableStateOf(0.85f)
+    var ambientLight by mutableStateOf(0.3f)
+    var shadowOpacity by mutableStateOf(0.35f)
+    var shadowOffsetX by mutableStateOf(0.08f)
+    var shadowOffsetY by mutableStateOf(-0.08f)
 
     fun mark() {
         renderRevision++
@@ -1406,6 +1414,26 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             }
             item[12] = stack.firstOrNull()?.id?.toFloat() ?: 0f
             item[13] = stack.firstOrNull()?.amount ?: 0f
+            if (l.is3d && lightingEnabled) {
+                val rx = Math.toRadians(l.gv(RX, t).toDouble())
+                val ry = Math.toRadians(l.gv(RY, t).toDouble())
+                val az = Math.toRadians(lightAzimuth.toDouble())
+                val el = Math.toRadians(lightElevation.coerceIn(-89f, 89f).toDouble())
+                val nx = sin(ry).toFloat()
+                val ny = (-sin(rx) * cos(ry)).toFloat()
+                val nz = (cos(rx) * cos(ry)).toFloat()
+                val lx = (cos(el) * cos(az)).toFloat()
+                val ly = (cos(el) * sin(az)).toFloat()
+                val lz = sin(el).toFloat()
+                val diffuse = maxOf(0f, nx * lx + ny * ly + nz * lz)
+                item[30] = (ambientLight + lightIntensity * diffuse).coerceIn(0f, 1.8f)
+                item[31] = shadowOpacity.coerceIn(0f, 1f)
+                item[32] = shadowOffsetX.coerceIn(-1f, 1f)
+                item[33] = shadowOffsetY.coerceIn(-1f, 1f)
+            } else {
+                item[30] = 1f
+                item[31] = 0f
+            }
             append(item, 0, bm)
         }
         return Frame(out.copyOf(count * STR), bitmaps.copyOf(count))
@@ -1450,6 +1478,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         o.put("camY", cameraY.toDouble())
         o.put("camDistance", cameraDistance.toDouble())
         o.put("camFov", cameraFov.toDouble())
+        o.put("lightOn", lightingEnabled)
+        o.put("lightAz", lightAzimuth.toDouble())
+        o.put("lightEl", lightElevation.toDouble())
+        o.put("lightPower", lightIntensity.toDouble())
+        o.put("ambient", ambientLight.toDouble())
+        o.put("shadowOpacity", shadowOpacity.toDouble())
+        o.put("shadowX", shadowOffsetX.toDouble())
+        o.put("shadowY", shadowOffsetY.toDouble())
         val a = JSONArray()
         for (l in layers) a.put(l.js())
         o.put("l", a)
@@ -1470,6 +1506,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             c.cameraY = o.optDouble("camY", 0.0).toFloat().coerceIn(-10f, 10f)
             c.cameraDistance = o.optDouble("camDistance", 3.0).toFloat().coerceIn(0.25f, 100f)
             c.cameraFov = o.optDouble("camFov", 50.0).toFloat().coerceIn(15f, 100f)
+            c.lightingEnabled = o.optBoolean("lightOn", false)
+            c.lightAzimuth = o.optDouble("lightAz", -35.0).toFloat().coerceIn(-180f, 180f)
+            c.lightElevation = o.optDouble("lightEl", 55.0).toFloat().coerceIn(-89f, 89f)
+            c.lightIntensity = o.optDouble("lightPower", 0.85).toFloat().coerceIn(0f, 1.5f)
+            c.ambientLight = o.optDouble("ambient", 0.3).toFloat().coerceIn(0f, 1f)
+            c.shadowOpacity = o.optDouble("shadowOpacity", 0.35).toFloat().coerceIn(0f, 1f)
+            c.shadowOffsetX = o.optDouble("shadowX", 0.08).toFloat().coerceIn(-1f, 1f)
+            c.shadowOffsetY = o.optDouble("shadowY", -0.08).toFloat().coerceIn(-1f, 1f)
             val ma = o.optJSONArray("mk")
             if (ma != null) for (i in 0 until ma.length()) {
                 val marker = ma.getJSONObject(i)

@@ -3,10 +3,10 @@ name: Decompile APK
 on:
   workflow_dispatch:
     inputs:
-      apk_path:
-        description: "Path to the APK inside the repository"
+      input_path:
+        description: "Path to an APK or ZIP containing an APK"
         required: true
-        default: "input/app.apk"
+        default: "input/base.zip"
         type: string
 
 permissions:
@@ -38,26 +38,45 @@ jobs:
           APK_PATH_INPUT: ${{ inputs.apk_path }}
         run: |
           set -euo pipefail
-          apk_path="${APK_PATH_INPUT}"
-          if [[ -z "$apk_path" ]]; then
-            echo "::error::Enter the path to an APK in the repository."
+          input_path="${APK_PATH_INPUT}"
+          if [[ -z "$input_path" || "$input_path" = /* || "$input_path" == *".."* ]]; then
+            echo "::error::Use a repository-relative APK or ZIP path without '..'."
             exit 1
           fi
-          if [[ "$apk_path" != *.apk && "$apk_path" != *.APK ]]; then
-            echo "::error::The input path must end in .apk"
+          if [[ ! -f "$input_path" ]]; then
+            echo "::error file=$input_path::Input file not found."
             exit 1
           fi
-          if [[ "$apk_path" = /* || "$apk_path" == *".."* ]]; then
-            echo "::error::Use a repository-relative path without '..'."
-            exit 1
-          fi
-          if [[ ! -f "$apk_path" ]]; then
-            echo "::error file=$apk_path::APK not found. Upload it to the repository first."
-            exit 1
-          fi
-          mkdir -p decompiled
+
+          mkdir -p decompiled extracted
+          case "$input_path" in
+            *.zip|*.ZIP)
+              unzip -q "$input_path" -d extracted
+              mapfile -d '' apks < <(find extracted -type f -iname '*.apk' -print0 | sort -z)
+              if [[ "${#apks[@]}" -eq 0 ]]; then
+                echo "::error::No APK files were found inside the ZIP."
+                exit 1
+              fi
+              if [[ "${#apks[@]}" -gt 1 ]]; then
+                printf 'Found multiple APKs:\n'
+                printf ' - %s\n' "${apks[@]}"
+                echo "::error::ZIP contains multiple APKs. Please upload a ZIP with one APK."
+                exit 1
+              fi
+              apk_path="${apks[0]}"
+              ;;
+            *.apk|*.APK)
+              apk_path="$input_path"
+              ;;
+            *)
+              echo "::error::Input must be an .apk or .zip file."
+              exit 1
+              ;;
+          esac
+
           echo "path=$apk_path" >> "$GITHUB_OUTPUT"
-          echo "APK: $apk_path" >> "$GITHUB_STEP_SUMMARY"
+          echo "Input: $input_path" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK selected: $apk_path" >> "$GITHUB_STEP_SUMMARY"
           sha256sum "$apk_path" | tee decompiled/apk-sha256.txt
 
       - name: Download JADX

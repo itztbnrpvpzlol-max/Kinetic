@@ -690,6 +690,8 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
     var shadowText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOpacity ?: 0.35f)) }
     var sxText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetX ?: 0.08f)) }
     var syText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetY ?: -0.08f)) }
+    var softnessText by remember(scene?.id) { mutableStateOf("%.3f".format(scene?.shadowSoftness ?: 0.012f)) }
+    var rangeText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(scene?.lights?.firstOrNull { it.id == selectedId }?.range ?: 4f)) }
     val selected = scene?.lights?.firstOrNull { it.id == selectedId }
     var xText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.x ?: 0f)) }
     var yText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.y ?: 0f)) }
@@ -798,6 +800,15 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                                 v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(elevation = value.coerceIn(-89f, 89f)).also { light -> setAnimated(light.elevationAnim, value.coerceIn(-89f, 89f)) } } }
                             }
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("Range", color = DIM, fontSize = 9.sp)
+                            Edt(rangeText, Modifier.width(64.dp), true) { v ->
+                                rangeText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value ->
+                                    updateLight { it.copy(range = value.coerceIn(0.1f, 20f)) }
+                                }
+                            }
+                        }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("X", color = DIM, fontSize = 9.sp)
@@ -849,7 +860,15 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                     v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOffsetY = it.coerceIn(-1f, 1f); scene.invalidateFrames() }
                 }
             }
-            Text("Use the Key buttons to set keyframes at the current playhead time. Position, intensity and directional angles interpolate using standard keyframe curves. Point lights use distance-attenuated diffuse shading at each layer center; this remains a 2.5D renderer without specular response, occlusion or per-light shadow maps.", color = DIM, fontSize = 9.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Softness", color = DIM, fontSize = 9.sp)
+                Edt(softnessText, Modifier.width(64.dp), true) { v ->
+                    softnessText = v
+                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowSoftness = it.coerceIn(0f, 0.04f); scene.invalidateFrames() }
+                }
+                Text("0–0.04", color = DIM, fontSize = 9.sp)
+            }
+            Text("Use the Key buttons to set keyframes at the current playhead time. Position, intensity and directional angles interpolate using standard keyframe curves. Point lights use smooth range-limited inverse-distance attenuation at each layer center. Shadow softness blurs projected bitmap alpha; shadows are still not depth-tested or physically cast between 3D objects.", color = DIM, fontSize = 9.sp)
         }
     }
 }

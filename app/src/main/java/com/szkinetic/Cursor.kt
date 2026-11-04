@@ -45,6 +45,7 @@ class Hit(
 ) {
     var ds: ((Offset) -> Unit)? = null
     var gate: (() -> Boolean)? = null
+    var end: (() -> Unit)? = null
 }
 
 class Cur(val st: Settings) {
@@ -116,6 +117,7 @@ class Cur(val st: Settings) {
 
     fun release(b: Int) {
         if (b == 0) {
+            grab?.end?.invoke()
             val d = dc
             if (d != null && mv < 12f) d.click(dp)
             dc = null
@@ -153,6 +155,7 @@ fun Modifier.cur(
     sc: ((Offset) -> Unit)? = null,
     ds: ((Offset) -> Unit)? = null,
     gate: (() -> Boolean)? = null,
+    end: (() -> Unit)? = null,
     click: (Offset) -> Unit = {}
 ): Modifier = composed {
     val z = LocalZ.current
@@ -163,6 +166,7 @@ fun Modifier.cur(
     h.sc = sc
     h.ds = ds
     h.gate = gate
+    h.end = end
     DisposableEffect(h) {
         c.hits.add(h)
         onDispose { c.hits.remove(h) }
@@ -173,7 +177,11 @@ fun Modifier.cur(
             if (!on) detectTapGestures(onLongPress = { h.rc?.invoke(h.r.topLeft + it) }, onTap = { h.click(it) })
         }
         .pointerInput(on) {
-            if (!on && h.drag != null) detectDragGestures(onDragStart = { h.ds?.invoke(it) }) { ch, _ ->
+            if (!on && h.drag != null) detectDragGestures(
+                onDragStart = { h.ds?.invoke(it) },
+                onDragEnd = { h.end?.invoke() },
+                onDragCancel = { h.end?.invoke() }
+            ) { ch, _ ->
                 ch.consume()
                 h.drag?.invoke(ch.position)
             }

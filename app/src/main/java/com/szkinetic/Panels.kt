@@ -193,7 +193,7 @@ fun ProjPanel(
     val ctx = LocalContext.current
     val cm = p.media.firstOrNull { it.id == sel }
     val cc = p.comps.firstOrNull { it.id == sel }
-    AePn(listOf("Project", "Effect Controls"), 0, foc, c, onFoc, m) {
+    Column(m) {
         Row(Modifier.fillMaxWidth().padding(6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tmb(cm, Modifier.size(64.dp, 38.dp))
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -273,13 +273,19 @@ fun ProjPanel(
 
 @Composable
 fun EmptyComp(c: Cur, foc: Boolean, onFoc: () -> Unit, onNew: () -> Unit, m: Modifier) {
-    AePn(listOf("Composition  (none)"), 0, foc, c, onFoc, m) {
+    Column(m) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Text("This project has no compositions.", color = DIM, fontSize = 12.sp)
             Spacer(Modifier.height(10.dp))
             Btn("New Composition", c, true) { onNew() }
         }
     }
+}
+
+@Composable
+fun TimeText(comp: Comp) {
+    val f by remember(comp) { derivedStateOf { (comp.time * comp.fps).toInt() } }
+    Text(aeTc(f, comp.fps), color = VB, fontSize = AE_FONT, fontWeight = FontWeight.Bold)
 }
 
 // ---------------------------------------------------------------- Composition panel
@@ -297,7 +303,7 @@ fun CompPanel(
     var vw by remember { mutableStateOf(1f) }
     var vh by remember { mutableStateOf(1f) }
     val lp = remember { floatArrayOf(0f, 0f) }
-    AePn(listOf("Composition  " + comp.name), 0, foc, c, onFoc, m) {
+    Column(m) {
         Row(Modifier.fillMaxWidth().height(18.dp).background(PB), verticalAlignment = Alignment.CenterVertically) {
             Dd(comp.name, c, Modifier.padding(start = 6.dp), Color.White) {
                 p.comps.map { q -> q.name to { onOpen(q.id) } }
@@ -332,6 +338,20 @@ fun CompPanel(
             }
         }
         Row(
+            Modifier.fillMaxWidth().height(28.dp).background(PH).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Ico(0, false, c) { comp.time = 0f }
+            Ico(1, false, c) { comp.stepFrames(-1) }
+            Ico(2, comp.playing, c) { comp.togglePlay() }
+            Ico(3, false, c) { comp.stepFrames(1) }
+            Ico(4, false, c) { comp.time = comp.dur }
+            Spacer(Modifier.width(8.dp))
+            FlatBtn(if (comp.loop) "Loop: On" else "Loop: Off", c, comp.loop) { comp.loop = !comp.loop }
+            Spacer(Modifier.weight(1f))
+            Text("Frame Rate (" + fpsTxt(comp.fps) + ")", color = DIM, fontSize = AE_FONT, maxLines = 1)
+        }
+        Row(
             Modifier.fillMaxWidth().height(22.dp).background(CH).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -352,7 +372,7 @@ fun CompPanel(
                 })
                 l
             }
-            Text(aeTc((comp.time * comp.fps).toInt(), comp.fps), color = VB, fontSize = AE_FONT, fontWeight = FontWeight.Bold)
+            TimeText(comp)
             Spacer(Modifier.weight(1f))
             Dd("(" + QN[res - 1] + ")", c) { QN.mapIndexed { i, n -> n to { onRes(i + 1) } } }
             Text("Active Camera", color = TXT, fontSize = AE_FONT, maxLines = 1)
@@ -362,79 +382,22 @@ fun CompPanel(
     }
 }
 
-// ---------------------------------------------------------------- right column: Info / Preview / Effects & Presets
+// ---------------------------------------------------------------- Info / Effects & Presets panels
 @Composable
-fun RightCol(comp: Comp, c: Cur, res: Int, onRes: (Int) -> Unit, foc: Int, onFoc: (Int) -> Unit, m: Modifier) {
-    val ctx = LocalContext.current
-    Column(m) {
-        // Info
-        AePn(listOf("Info", "Audio"), 0, foc == 3, c, { onFoc(3) }, Modifier.fillMaxWidth().weight(0.8f)) {
-            val rs = rememberScrollState()
-            Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs).padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                val l = comp.layers.getOrNull(comp.sel)
-                if (l == null) {
-                    Text("No layer selected", color = DIM, fontSize = AE_FONT)
-                } else {
-                    val md = comp.lib.firstOrNull { it.id == l.mid }
-                    Text(l.name, color = Color.White, fontSize = AE_FONT, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Kv("Type", when (l.role) { 1 -> "Null"; 2 -> "Adjustment"; else -> if (l.kind < 0) "Shape" else KN[l.kind] })
-                    Kv("Parent", comp.layerOf(l.parent)?.name ?: "None")
-                    Kv("In", aeTc((l.start * comp.fps).toInt(), comp.fps))
-                    Kv("Out", aeTc((l.end(comp.dur) * comp.fps).toInt(), comp.fps))
-                    if (md != null && md.kind != 2) Kv("Size", "${md.w} x ${md.h}")
-                }
-            }
-        }
-        // Preview
-        AePn(listOf("Preview"), 0, foc == 4, c, { onFoc(4) }, Modifier.fillMaxWidth().weight(1.3f)) {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
-            ) {
-                Ico(0, false, c) { comp.time = 0f }
-                Ico(1, false, c) { comp.stepFrames(-1) }
-                Ico(2, comp.playing, c) { comp.togglePlay() }
-                Ico(3, false, c) { comp.stepFrames(1) }
-                Ico(4, false, c) { comp.time = comp.dur }
-            }
-            val rs = rememberScrollState()
-            Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs).padding(horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Kv("Shortcut", "Spacebar")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Loop", color = DIM, fontSize = AE_FONT)
-                    FlatBtn(if (comp.loop) "On" else "Off", c, comp.loop) { comp.loop = !comp.loop }
-                }
-                Kv("Range", "Entire Comp")
-                Kv("Play From", "Current Time")
-                Kv("Frame Rate", "(" + fpsTxt(comp.fps) + ")")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Resolution", color = DIM, fontSize = AE_FONT)
-                    Dd(QN[res - 1], c) { QN.mapIndexed { i, n -> n to { onRes(i + 1) } } }
-                }
-            }
-        }
-        // Effects & Presets
-        AePn(listOf("Effects & Presets"), 0, foc == 5, c, { onFoc(5) }, Modifier.fillMaxWidth().weight(1.1f)) {
-            val rs = rememberScrollState()
-            Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs).padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Tap an effect to add it to the selected adjustment layer(s).", color = DIM, fontSize = 9.sp)
-                FXS.forEachIndexed { i, d ->
-                    Box(
-                        Modifier.fillMaxWidth().background(Color(0xFF2E2E2E)).cur(c) {
-                            val adj = comp.selected().filter { it.role == 2 }
-                            if (adj.isEmpty()) {
-                                Toast.makeText(ctx, "Select an adjustment layer first", Toast.LENGTH_SHORT).show()
-                            } else {
-                                comp.mark()
-                                for (l in adj) {
-                                    l.fx.add(Fx(i))
-                                    l.open = true
-                                }
-                            }
-                        }.padding(horizontal = 6.dp, vertical = 4.dp)
-                    ) { Text(d.name, color = TXT, fontSize = AE_FONT, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
-            }
+fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
+    val rs = rememberScrollState()
+    Column(m.vscr(c, rs).padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val l = comp?.layers?.getOrNull(comp.sel)
+        if (comp == null || l == null) {
+            Text("No layer selected", color = DIM, fontSize = AE_FONT)
+        } else {
+            val md = comp.lib.firstOrNull { it.id == l.mid }
+            Text(l.name, color = Color.White, fontSize = AE_FONT, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Kv("Type", when (l.role) { 1 -> "Null"; else -> if (l.kind < 0) "Shape" else KN[l.kind] })
+            Kv("Parent", comp.layerOf(l.parent)?.name ?: "None")
+            Kv("In", aeTc((l.start * comp.fps).toInt(), comp.fps))
+            Kv("Out", aeTc((l.end(comp.dur) * comp.fps).toInt(), comp.fps))
+            if (md != null && md.kind != 2) Kv("Size", "${md.w} x ${md.h}")
         }
     }
 }

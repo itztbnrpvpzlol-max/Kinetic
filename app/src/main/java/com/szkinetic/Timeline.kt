@@ -11,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -68,7 +70,7 @@ sealed class TR {
 }
 
 class TLayer(override val l: Layer, val i: Int) : TR()
-class TGroup(override val l: Layer, val title: String, val kind: Int, val fx: Fx? = null, val ind: Int = 1) : TR()
+class TGroup(override val l: Layer, val title: String, val kind: Int, val ind: Int = 1) : TR()
 class TProp(
     override val l: Layer, val name: String, val ps: List<Prop>, val unit: String, val sens: Float, val lo: Float, val hi: Float,
     val toD: (Int, Float) -> Float, val set: (Int, Float) -> Unit, val reset: (Int) -> Unit, val rot: Boolean, val ind: Int
@@ -79,14 +81,6 @@ private fun tp(comp: Comp, l: Layer, d: PDef, ind: Int): TProp = TProp(
     { i, v -> comp.toD(d.ch[i], v) }, { i, dv -> comp.setD(l, d.ch[i], dv) }, { i -> comp.resetD(l, d.ch[i]) }, d === D_ROT, ind
 )
 
-private fun fp(comp: Comp, l: Layer, fx: Fx, pi: Int, nm: String, ind: Int): TProp {
-    val d = FXS[fx.type]
-    return TProp(
-        l, nm, listOf(fx.pr[pi]), d.unit[pi], d.sens[pi], d.lo[pi], d.hi[pi],
-        { _, v -> v }, { _, v -> comp.setProp(fx.pr[pi], v) }, { _ -> comp.setProp(fx.pr[pi], d.def[pi]) }, false, ind
-    )
-}
-
 fun buildRows(comp: Comp, shy: Boolean, q: String): List<TR> {
     val r = ArrayList<TR>()
     comp.layers.forEachIndexed { i, l ->
@@ -94,24 +88,12 @@ fun buildRows(comp: Comp, shy: Boolean, q: String): List<TR> {
         if (q.isNotBlank() && !l.name.contains(q, true)) return@forEachIndexed
         r.add(TLayer(l, i))
         if (!l.open) return@forEachIndexed
-        val defs = if (l.role == 2) listOf(D_OPA) else tdefs(l)
+        val defs = tdefs(l)
         if (l.animOnly) {
             for (d in defs) if (d.ch.any { l.pr[it].anim }) r.add(tp(comp, l, d, 1))
-            for (fx in l.fx) {
-                val fd = FXS[fx.type]
-                for (pi in fd.pn.indices) if (fx.pr[pi].anim) r.add(fp(comp, l, fx, pi, fd.name + " > " + fd.pn[pi], 1))
-            }
         } else {
             r.add(TGroup(l, "Transform", 0))
             if (l.tOpen) for (d in defs) r.add(tp(comp, l, d, 2))
-            if (l.role == 2) {
-                r.add(TGroup(l, "Effects", 1))
-                if (l.eOpen) for (fx in l.fx) {
-                    val fd = FXS[fx.type]
-                    r.add(TGroup(l, fd.name, 2, fx, 2))
-                    if (fx.exp) for (pi in fd.pn.indices) r.add(fp(comp, l, fx, pi, fd.pn[pi], 3))
-                }
-            }
         }
     }
     return r
@@ -186,10 +168,6 @@ fun LLayer(comp: Comp, l: Layer, i: Int, c: Cur, modes: Boolean, multi: Boolean,
             val col = Color(0xFFC8C8C8)
             when {
                 l.role == 1 -> drawRect(col, Offset(2 * u, 2 * u), Size(10 * u, 10 * u), style = Stroke(1.2f * u))
-                l.role == 2 -> {
-                    drawCircle(col, 5 * u, Offset(7 * u, 7 * u), style = Stroke(1.2f * u))
-                    drawArc(col, 90f, 180f, true, Offset(2 * u, 2 * u), Size(10 * u, 10 * u))
-                }
                 l.kind >= 0 -> {
                     drawRect(Color(l.col), Offset(1 * u, 3 * u), Size(12 * u, 8 * u))
                     drawRect(col, Offset(1 * u, 3 * u), Size(12 * u, 8 * u), style = Stroke(1f * u))
@@ -236,55 +214,26 @@ fun LLayer(comp: Comp, l: Layer, i: Int, c: Cur, modes: Boolean, multi: Boolean,
 @Composable
 fun LGroup(comp: Comp, r: TGroup, c: Cur) {
     val l = r.l
-    val fx = r.fx
-    val open = when (r.kind) {
-        0 -> l.tOpen
-        1 -> l.eOpen
-        else -> fx?.exp ?: true
-    }
-    Row(
-        Modifier.fillMaxWidth().height(RH).rowLine().cur(c, rc = if (fx != null) mnu(c, "Remove effect" to {
-            comp.mark()
-            l.fx.remove(fx)
-            Unit
-        }) else null) {},
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(Modifier.fillMaxWidth().height(RH).rowLine(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.width(68.dp))
         Spacer(Modifier.width((r.ind * 10).dp))
-        Ix(if (open) 9 else 8, true, c, 14.dp) {
-            when (r.kind) {
-                0 -> l.tOpen = !l.tOpen
-                1 -> l.eOpen = !l.eOpen
-                else -> if (fx != null) fx.exp = !fx.exp
-            }
-        }
+        Ix(if (l.tOpen) 9 else 8, true, c, 14.dp) { l.tOpen = !l.tOpen }
         Text(r.title, color = TXT, fontSize = AE_FONT, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         Box(Modifier.width(VALW).padding(start = 2.dp)) {
-            if (r.kind == 0) {
-                Text(
-                    "Reset", color = VB, fontSize = AE_FONT,
-                    modifier = Modifier.cur(c) {
-                        comp.mark()
-                        for (d in (if (l.role == 2) listOf(D_OPA) else tdefs(l))) for (ch in d.ch) comp.resetD(l, ch)
-                    }.padding(end = 6.dp)
-                )
-            } else if (r.kind == 2 && fx != null) {
-                Text(
-                    "fx", color = if (fx.on) VB else Color(0xFF555555), fontSize = AE_FONT, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.cur(c) {
-                        comp.mark()
-                        fx.on = !fx.on
-                    }.padding(end = 6.dp)
-                )
-            }
+            Text(
+                "Reset", color = VB, fontSize = AE_FONT,
+                modifier = Modifier.cur(c) {
+                    comp.mark()
+                    for (d in tdefs(l)) for (ch in d.ch) comp.resetD(l, ch)
+                }.padding(end = 6.dp)
+            )
         }
     }
 }
 
 @Composable
 fun LProp(comp: Comp, r: TProp, c: Cur, graph: Boolean, multi: Boolean) {
-    val t = comp.time
+    val t = comp.uiTime
     val e = comp.eps()
     val ps = r.ps
     val anim = ps.all { it.anim }
@@ -534,7 +483,7 @@ fun GraphView(
     val rows = ArrayList<GRow>()
     var ci = 0
     for (l in comp.selected()) {
-        val defs = if (l.role == 2) listOf(D_OPA) else tdefs(l)
+        val defs = tdefs(l)
         for (d in defs) for (j in d.ch.indices) {
             val ch = d.ch[j]
             val p = l.pr[ch]
@@ -542,16 +491,6 @@ fun GraphView(
                 val nm = l.name + "  " + d.name + (if (d.ch.size > 1) " " + d.lb[j] else "")
                 rows.add(GRow(nm, p, { v -> comp.toD(ch, v) }, { x -> comp.fromD(ch, x) }, GPAL[ci % GPAL.size]))
                 ci++
-            }
-        }
-        for (fx in l.fx) {
-            val fd = FXS[fx.type]
-            for (pi in fd.pn.indices) {
-                val p = fx.pr[pi]
-                if (p.anim && p.gr) {
-                    rows.add(GRow(l.name + "  " + fd.pn[pi], p, { v -> v }, { x -> x }, GPAL[ci % GPAL.size]))
-                    ci++
-                }
             }
         }
     }
@@ -576,6 +515,7 @@ fun GraphView(
     val byProp = HashMap<Prop, GRow>()
     for (g in rows) byProp[g.p] = g
     var hh by remember { mutableStateOf(1f) }
+    var mq by remember { mutableStateOf<Rect?>(null) }
     val pad = 10f
     val st = remember { GSt() }
     fun yOf(v: Float): Float = hh - pad - (v - gmin) / (gmax - gmin) * (hh - 2 * pad)
@@ -593,20 +533,20 @@ fun GraphView(
                         val oi = f.oi.coerceIn(0.001f, 1f)
                         val hx = xp(f.t + oi * dtn)
                         val hy = yOf(g.toD(f.v + f.osp * oi * dtn))
-                        if (abs(o.x - hx) < 12f && abs(o.y - hy) < 12f) return GHit(1, gi, i, 1)
+                        if (abs(o.x - hx) < 14f && abs(o.y - hy) < 14f) return GHit(1, gi, i, 1)
                     }
                     if (i > 0) {
                         val dtp = f.t - k[i - 1].t
                         val ii = f.ii.coerceIn(0.001f, 1f)
                         val hx = xp(f.t - ii * dtp)
                         val hy = yOf(g.toD(f.v - f.isp * ii * dtp))
-                        if (abs(o.x - hx) < 12f && abs(o.y - hy) < 12f) return GHit(1, gi, i, 0)
+                        if (abs(o.x - hx) < 14f && abs(o.y - hy) < 14f) return GHit(1, gi, i, 0)
                     }
                 }
             }
         }
         var best: GHit? = null
-        var bd = 14f
+        var bd = 18f
         for (gi in rows.indices) {
             val g = rows[gi]
             for (i in g.p.k.indices) {
@@ -631,7 +571,8 @@ fun GraphView(
         st.sy = o.y
         if (h == null) {
             if (!multi) comp.clearKeys()
-            st.mode = -1
+            st.mode = 3
+            mq = Rect(o.x, o.y, o.x, o.y)
         } else if (h.kind == 1) {
             st.mode = 2
             st.g = h.g
@@ -651,112 +592,154 @@ fun GraphView(
         Unit
     }
 
-    Canvas(
-        m.onSizeChanged { hh = it.height.toFloat() }.cur(
-            c,
-            drag = { o ->
-                if (st.mode == 1) {
-                    if (!st.moved && (abs(o.x - st.sx) > 3f || abs(o.y - st.sy) > 3f)) {
-                        st.moved = true
-                        comp.mark()
-                        st.snap = comp.beginKeyMove()
-                    }
-                    val sn = st.snap
-                    if (sn != null) {
-                        val dvd = -(o.y - st.sy) * (gmax - gmin) / (hh - 2 * pad)
-                        comp.applyKeyMove(sn, (o.x - st.sx) / pps) { p ->
-                            val r = byProp[p]
-                            if (r == null) 0f else r.fromD(dvd) - r.fromD(0f)
-                        }
-                    }
-                } else if (st.mode == 2) {
-                    val g = rows.getOrNull(st.g)
-                    if (g != null && st.i in g.p.k.indices) {
-                        if (!st.moved) {
+    Column(m) {
+        Canvas(
+            Modifier.weight(1f).fillMaxWidth().padding(1.dp).onSizeChanged { hh = maxOf(it.height.toFloat(), 1f) }.cur(
+                c,
+                drag = { o ->
+                    if (st.mode == 1) {
+                        if (!st.moved && (abs(o.x - st.sx) > 3f || abs(o.y - st.sy) > 3f)) {
                             st.moved = true
                             comp.mark()
+                            st.snap = comp.beginKeyMove()
                         }
-                        val p = g.p
-                        val f0 = p.k[st.i]
-                        val f = if (f0.ip == 1) f0 else f0.copy(ip = 1)
-                        val hv = g.fromD(vAt(o.y))
-                        if (st.side == 1 && st.i + 1 < p.k.size) {
-                            val dtn = p.k[st.i + 1].t - f.t
-                            val oi = ((xt(o.x) - f.t) / dtn).coerceIn(0.001f, 1f)
-                            p.k[st.i] = f.copy(oi = oi, osp = (hv - f.v) / (oi * dtn))
-                        } else if (st.side == 0 && st.i > 0) {
-                            val dtp = f.t - p.k[st.i - 1].t
-                            val ii = ((f.t - xt(o.x)) / dtp).coerceIn(0.001f, 1f)
-                            p.k[st.i] = f.copy(ii = ii, isp = (f.v - hv) / (ii * dtp))
+                        val sn = st.snap
+                        if (sn != null) {
+                            val dvd = -(o.y - st.sy) * (gmax - gmin) / (hh - 2 * pad)
+                            comp.applyKeyMove(sn, (o.x - st.sx) / pps) { p ->
+                                val r = byProp[p]
+                                if (r == null) 0f else r.fromD(dvd) - r.fromD(0f)
+                            }
+                        }
+                    } else if (st.mode == 2) {
+                        val g = rows.getOrNull(st.g)
+                        if (g != null && st.i in g.p.k.indices) {
+                            if (!st.moved) {
+                                st.moved = true
+                                comp.mark()
+                            }
+                            val p = g.p
+                            val f0 = p.k[st.i]
+                            val f = if (f0.ip == 1) f0 else f0.copy(ip = 1)
+                            val hv = g.fromD(vAt(o.y))
+                            if (st.side == 1 && st.i + 1 < p.k.size) {
+                                val dtn = p.k[st.i + 1].t - f.t
+                                val oi = ((xt(o.x) - f.t) / dtn).coerceIn(0.001f, 1f)
+                                p.k[st.i] = f.copy(oi = oi, osp = (hv - f.v) / (oi * dtn))
+                            } else if (st.side == 0 && st.i > 0) {
+                                val dtp = f.t - p.k[st.i - 1].t
+                                val ii = ((f.t - xt(o.x)) / dtp).coerceIn(0.001f, 1f)
+                                p.k[st.i] = f.copy(ii = ii, isp = (f.v - hv) / (ii * dtp))
+                            }
+                        }
+                    } else if (st.mode == 3) {
+                        val r = Rect(minOf(st.sx, o.x), minOf(st.sy, o.y), maxOf(st.sx, o.x), maxOf(st.sy, o.y))
+                        mq = r
+                        comp.clearKeys()
+                        for (g in rows) for (i in g.p.k.indices) {
+                            val f = g.p.k[i]
+                            val x = xp(f.t)
+                            val y = yOf(g.toD(f.v))
+                            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) g.p.setSel(i, true)
                         }
                     }
+                },
+                ds = grab,
+                gate = { st.mode >= 0 },
+                end = {
+                    mq = null
+                    st.mode = -1
                 }
-            },
-            ds = grab,
-            gate = { st.mode >= 0 }
-        ) { o -> grab(o) }
-    ) {
-        // grid
-        for (n in 0..4) {
-            val y = pad + (size.height - 2 * pad) * n / 4f
-            drawLine(Color(0xFF2E2E2E), Offset(0f, y), Offset(size.width, y), 1f)
-            val v = gmax - (gmax - gmin) * ((y - pad) / (size.height - 2 * pad))
-            val tx = "%.0f".format(v)
-            drawText(lt.get("gy$tx", tx, GTS), topLeft = Offset(3f, y + 1f))
-        }
-        val x0 = xp(0f)
-        val x1 = xp(comp.dur)
-        drawLine(Color(0xFF3A3A3A), Offset(x0, 0f), Offset(x0, size.height), 1f)
-        drawLine(Color(0xFF3A3A3A), Offset(x1, 0f), Offset(x1, size.height), 1f)
-        rows.forEachIndexed { gi, g ->
-            val path = Path()
-            var x = 0f
-            var first = true
-            while (x <= size.width) {
-                val t = xt(x)
-                val y = yOf(g.toD(g.p.get(t)))
-                if (first) {
-                    path.moveTo(x, y)
-                    first = false
-                } else {
-                    path.lineTo(x, y)
-                }
-                x += 3f
+            ) { o -> grab(o) }
+        ) {
+            for (n in 0..4) {
+                val y = pad + (size.height - 2 * pad) * n / 4f
+                drawLine(Color(0xFF2E2E2E), Offset(0f, y), Offset(size.width, y), 1f)
+                val v = gmax - (gmax - gmin) * ((y - pad) / (size.height - 2 * pad))
+                val tx = "%.0f".format(v)
+                drawText(lt.get("gy$tx", tx, GTS), topLeft = Offset(3f, y + 1f))
             }
-            drawPath(path, g.col, style = Stroke(1.6f))
-            // legend
-            drawCircle(g.col, 3f, Offset(46f, 14f + gi * 12f))
-            drawText(lt.get("gn" + g.name, g.name, GTS), topLeft = Offset(54f, 8f + gi * 12f))
-            val k = g.p.k
-            for (i in k.indices) {
-                val f = k[i]
-                val kx = xp(f.t)
-                val ky = yOf(g.toD(f.v))
-                if (f.sel && f.ip == 1) {
-                    if (i + 1 < k.size) {
-                        val dtn = k[i + 1].t - f.t
-                        val oi = f.oi.coerceIn(0.001f, 1f)
-                        val hx = xp(f.t + oi * dtn)
-                        val hy = yOf(g.toD(f.v + f.osp * oi * dtn))
-                        drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
-                        drawCircle(Color.White, 4f, Offset(hx, hy))
+            val x0 = xp(0f)
+            val x1 = xp(comp.dur)
+            drawLine(Color(0xFF3A3A3A), Offset(x0, 0f), Offset(x0, size.height), 1f)
+            drawLine(Color(0xFF3A3A3A), Offset(x1, 0f), Offset(x1, size.height), 1f)
+            rows.forEachIndexed { gi, g ->
+                val path = Path()
+                var x = 0f
+                var first = true
+                while (x <= size.width) {
+                    val y = yOf(g.toD(g.p.get(xt(x))))
+                    if (first) {
+                        path.moveTo(x, y)
+                        first = false
+                    } else {
+                        path.lineTo(x, y)
                     }
-                    if (i > 0) {
-                        val dtp = f.t - k[i - 1].t
-                        val ii = f.ii.coerceIn(0.001f, 1f)
-                        val hx = xp(f.t - ii * dtp)
-                        val hy = yOf(g.toD(f.v - f.isp * ii * dtp))
-                        drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
-                        drawCircle(Color.White, 4f, Offset(hx, hy))
-                    }
+                    x += 3f
                 }
-                kfDraw(kx, ky, f.ip, f.sel, 4.5.dp.toPx())
+                drawPath(path, g.col, style = Stroke(1.6f))
+                drawCircle(g.col, 3f, Offset(46f, 14f + gi * 12f))
+                drawText(lt.get("gn" + g.name, g.name, GTS), topLeft = Offset(54f, 8f + gi * 12f))
+                val k = g.p.k
+                for (i in k.indices) {
+                    val f = k[i]
+                    val kx = xp(f.t)
+                    val ky = yOf(g.toD(f.v))
+                    if (f.sel && f.ip == 1) {
+                        if (i + 1 < k.size) {
+                            val dtn = k[i + 1].t - f.t
+                            val oi = f.oi.coerceIn(0.001f, 1f)
+                            val hx = xp(f.t + oi * dtn)
+                            val hy = yOf(g.toD(f.v + f.osp * oi * dtn))
+                            drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
+                            drawCircle(Color.White, 5f, Offset(hx, hy))
+                        }
+                        if (i > 0) {
+                            val dtp = f.t - k[i - 1].t
+                            val ii = f.ii.coerceIn(0.001f, 1f)
+                            val hx = xp(f.t - ii * dtp)
+                            val hy = yOf(g.toD(f.v - f.isp * ii * dtp))
+                            drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
+                            drawCircle(Color.White, 5f, Offset(hx, hy))
+                        }
+                    }
+                    kfDraw(kx, ky, f.ip, f.sel, 5.5.dp.toPx())
+                }
+            }
+            val r = mq
+            if (r != null) {
+                drawRect(Color(0x552D8CEB), r.topLeft, r.size)
+                drawRect(Color(0xFF2D8CEB), r.topLeft, r.size, style = Stroke(1f))
+            }
+            if (rows.isEmpty()) {
+                val msg = "Select a layer with animated properties"
+                val tl = lt.get("gm", msg, GTS)
+                drawText(tl, topLeft = Offset((size.width - tl.size.width) / 2f, size.height / 2f))
             }
         }
-        if (rows.isEmpty()) {
-            val msg = "Select a layer with animated properties"
-            val tl = lt.get("gm", msg, GTS)
-            drawText(tl, topLeft = Offset((size.width - tl.size.width) / 2f, size.height / 2f))
+        Row(
+            Modifier.fillMaxWidth().height(24.dp).background(CH).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Dd("Ease", c) {
+                listOf(
+                    "Easy Ease" to { comp.easeKeys(3) },
+                    "Easy Ease In" to { comp.easeKeys(4) },
+                    "Easy Ease Out" to { comp.easeKeys(5) },
+                    "Auto Bezier" to { comp.easeKeys(1) },
+                    "Linear" to { comp.easeKeys(0) },
+                    "Hold" to { comp.easeKeys(2) }
+                )
+            }
+            FlatBtn("Add key", c) {
+                comp.mark()
+                val e = comp.eps()
+                for (g in rows) if (g.p.idx(comp.time, e) < 0) g.p.put(Kf(comp.time, g.p.get(comp.time)), e)
+            }
+            FlatBtn("Delete", c) { comp.delKeys() }
+            FlatBtn("Copy", c) { comp.copyKeys() }
+            FlatBtn("Paste", c) { comp.pasteKeys() }
+            FlatBtn("All", c) { for (g in rows) g.p.selAll() }
         }
     }
 }
@@ -788,6 +771,9 @@ fun TimePanel(
     var shyOn by remember { mutableStateOf(false) }
     var modes by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
+    var tw by remember { mutableStateOf(0f) }
+    val dn = LocalDensity.current.density
+    val lw = if (tw > 0f) minOf(LEFT.value, tw / dn * 0.62f).dp else LEFT
     val tm = rememberTextMeasurer()
     val lt = remember(tm) { Lt(tm) }
     val d = comp.dur
@@ -804,11 +790,11 @@ fun TimePanel(
         }
     }
     val rows = buildRows(comp, shyOn, q)
-    AePn(listOf(comp.name), 0, foc, c, onFoc, m) {
+    Column(m.onSizeChanged { tw = it.width.toFloat() }) {
         val rs = rememberScrollState()
         Row(Modifier.fillMaxWidth().weight(1f)) {
             // ---- left: timecode, search, columns, layer + property rows
-            Column(Modifier.width(LEFT).fillMaxHeight()) {
+            Column(Modifier.width(lw).fillMaxHeight()) {
                 Row(
                     Modifier.fillMaxWidth().height(32.dp).background(PB),
                     verticalAlignment = Alignment.CenterVertically
@@ -845,7 +831,7 @@ fun TimePanel(
                 }
             }
             // ---- right: ruler, tracks or graph
-            Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { w = it.width.toFloat() }) {
+            Box(Modifier.weight(1f).fillMaxHeight().onSizeChanged { w = maxOf(it.width.toFloat(), 1f) }) {
                 Column(Modifier.fillMaxSize()) {
                     Canvas(Modifier.fillMaxWidth().height(48.dp).background(PB).cur(c, { seek(it.x) }) { seek(it.x) }) {
                         val x0 = xp(0f)
@@ -882,12 +868,11 @@ fun TimePanel(
                         }
                     }
                     if (graph) {
-                        GraphView(
-                            comp, c, xp, xt, pps, multi, lt,
+                        Box(
                             Modifier.weight(1f).fillMaxWidth().background(Color(0xFF1E1E1E)).scr(c) { o ->
                                 if (zoom > 1.05f) vs = (vsc - o.x / pps).coerceIn(0f, maxOf(d - d / zoom, 0f))
                             }
-                        )
+                        ) { GraphView(comp, c, xp, xt, pps, multi, lt, Modifier.fillMaxSize()) }
                     } else {
                         Column(
                             Modifier.weight(1f).fillMaxWidth().background(PB).scr(c) { o ->

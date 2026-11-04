@@ -31,7 +31,9 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     val scope = rememberCoroutineScope()
     var cid by remember { mutableStateOf(p.comps.firstOrNull()?.id ?: "") }
     val comp: Comp? = p.comps.firstOrNull { it.id == cid } ?: p.comps.firstOrNull()
-    var foc by remember { mutableStateOf(2) }
+    var root by remember { mutableStateOf(LayoutStore.loadCurrent(ctx) ?: defaultTree()) }
+    val rootS = rememberUpdatedState(root)
+    val dock = remember { DockCtx(c, { rootS.value }, { root = it }) }
     var tool by remember { mutableStateOf(0) }
     var res by remember { mutableStateOf(1) }
     var graph by remember { mutableStateOf(false) }
@@ -55,14 +57,22 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     }
     val doImp = { imp.launch(arrayOf("video/*", "audio/*", "image/*")) }
     val lo = LocalLifecycleOwner.current
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3000)
+            LayoutStore.saveCurrent(ctx, rootS.value)
+        }
+    }
+    DisposableEffect(Unit) { onDispose { LayoutStore.saveCurrent(ctx, rootS.value) } }
     LaunchedEffect(p) {
-        var last = p.js().toString()
+        var last = withContext(Dispatchers.Default) { p.js().toString() }
         while (true) {
             delay(4000)
-            val s = p.js().toString()
+            if (p.comps.any { it.playing }) continue // never serialize during playback
+            val s = withContext(Dispatchers.Default) { p.js().toString() }
             if (s != last) {
                 p.mod = System.currentTimeMillis()
-                val t = p.js().toString()
+                val t = withContext(Dispatchers.Default) { p.js().toString() }
                 last = t
                 withContext(Dispatchers.IO) { Store.put(ctx, p.id, t) }
             }
@@ -72,26 +82,50 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     LaunchedEffect(comp, pl) {
         val cm = comp
         if (cm != null && cm.playing) {
-            var last = 0L
-            while (cm.playing) {
-                val n = withFrameNanos { it }
-                if (last != 0L) {
-                    var nt = cm.time + (n - last) / 1e9f
-                    if (nt >= cm.dur) {
-                        if (cm.loop) {
-                            nt %= cm.dur
-                        } else {
-                            nt = cm.dur
-                            cm.playing = false
-                        }
-                    }
-                    cm.time = nt
-                }
-                last = n
+            try {
+                var last = 0L
+                var lastSync = 0L
+                var lastUi = 0L
+                Aud.warm(cm)
                 Aud.sync(cm, true)
+                while (cm.playing) {
+                    val n = withFrameNanos { it }
+                    if (last != 0L) {
+                        var nt = cm.time + (n - last) / 1e9f
+                        if (nt >= cm.dur) {
+                            if (cm.loop) {
+                                nt %= cm.dur
+                                lastSync = 0L // re-sync audio after the loop point
+                            } else {
+                                nt = cm.dur
+                                cm.playing = false
+                            }
+                        }
+                        cm.time = nt
+                    }
+                    last = n
+                    if (n - lastSync > 120_000_000L) {
+                        lastSync = n
+                        Aud.sync(cm, true)
+                    }
+                    if (n - lastUi > 100_000_000L) {
+                        lastUi = n
+                        cm.uiTime = cm.time
+                    }
+                }
+            } finally {
+                Aud.sync(cm, false)
+                cm.uiTime = cm.time
             }
+        } else if (cm != null) {
             Aud.sync(cm, false)
+            cm.uiTime = cm.time
         }
+    }
+    // keep audio players for this comp prepared so play starts instantly
+    LaunchedEffect(comp, comp?.layers?.size) {
+        val cm = comp
+        if (cm != null) Aud.warm(cm)
     }
     DisposableEffect(lo, p) {
         val ob = LifecycleEventObserver { _, e ->
@@ -126,6 +160,46 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
         if (comp != null) {
             if (comp.nSelKeys() == 0) note("Select keyframes first") else comp.easeKeys(m)
         }
+    }
+    dock.title = { id ->
+        if (id == "comp") "Composition  " + (comp?.name ?: "") else panelTitle(id)
+    }
+    val content: @Composable (String, Modifier) -> Unit = { id, mod ->
+        when (id) {
+            "proj" -> ProjPanel(p, comp, c, psel, { psel = it }, { cid = it }, { showNew = true }, false, {}, { doImp() }, mod)
+            "comp" -> if (comp != null) {
+                CompPanel(p, comp, c, tool, res, { res = it }, false, {}, { cid = it }, mod)
+            } else {
+                EmptyComp(c, false, {}, { showNew = true }, mod)
+            }
+            "time" -> if (comp != null) {
+                TimePanel(comp, c, false, {}, graph, { graph = it }, multi, { multi = it }, mod)
+            } else {
+                Box(mod, Alignment.Center) { Text("No composition", color = DIM, fontSize = 11.sp) }
+            }
+            "info" -> InfoPanel(comp, c, mod)
+            else -> InfoPanel(comp, c, mod)
+        }
+    }
+    val winItems = ArrayList<Pair<String, () -> Unit>>()
+    for (id in PANELS) {
+        val shown = id in panelsIn(root)
+        winItems.add(((if (shown) "\u2713 " else "     ") + panelTitle(id)) to {
+            root = if (shown) (removePanel(root, id) ?: defaultTree()) else addPanel(root, id)
+        })
+    }
+    winItems.add("Reset layout" to { root = defaultTree() })
+    winItems.add("Save layout" to {
+        val nm = "Layout " + (LayoutStore.names(ctx).size + 1)
+        LayoutStore.save(ctx, nm, root)
+        note("Saved $nm")
+    })
+    for (nm in LayoutStore.names(ctx)) {
+        winItems.add("Load: $nm" to {
+            val l = LayoutStore.load(ctx, nm)
+            if (l != null) root = l
+        })
+        winItems.add("Delete: $nm" to { LayoutStore.delete(ctx, nm) })
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(BG)) {
@@ -167,8 +241,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     "Composition", c,
                     "New composition..." to { showNew = true },
                     "New shape layer" to { comp?.add(); Unit },
-                    "New null object" to { comp?.addNull(); Unit },
-                    "New adjustment layer" to { comp?.addAdj(); Unit }
+                    "New null object" to { comp?.addNull(); Unit }
                 )
                 Mn(
                     "Layer", c,
@@ -194,6 +267,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     },
                     (if (graph) "Hide Graph Editor" else "Show Graph Editor") to { graph = !graph }
                 )
+                Mn("Window", c, *winItems.toTypedArray())
                 Mn("View", c, (if (c.on) "Hide virtual cursor" else "Show virtual cursor") to { c.on = !c.on })
                 Spacer(Modifier.weight(1f))
                 Text(p.name, color = GR, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
@@ -234,25 +308,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 Text("Standard", color = DIM, fontSize = 10.sp)
                 Spacer(Modifier.width(10.dp))
             }
-            if (comp == null) {
-                Row(Modifier.fillMaxWidth().weight(1f)) {
-                    ProjPanel(
-                        p, null, c, psel, { psel = it }, { cid = it }, { showNew = true },
-                        foc == 0, { foc = 0 }, { doImp() }, Modifier.width(170.dp).fillMaxHeight()
-                    )
-                    EmptyComp(c, foc == 1, { foc = 1 }, { showNew = true }, Modifier.weight(1f).fillMaxHeight())
-                }
-            } else {
-                Row(Modifier.fillMaxWidth().weight(1.1f)) {
-                    ProjPanel(
-                        p, comp, c, psel, { psel = it }, { cid = it }, { showNew = true },
-                        foc == 0, { foc = 0 }, { doImp() }, Modifier.width(170.dp).fillMaxHeight()
-                    )
-                    CompPanel(p, comp, c, tool, res, { res = it }, foc == 1, { foc = 1 }, { cid = it }, Modifier.weight(1f).fillMaxHeight())
-                    RightCol(comp, c, res, { res = it }, foc, { foc = it }, Modifier.width(168.dp).fillMaxHeight())
-                }
-                TimePanel(comp, c, foc == 2, { foc = 2 }, graph, { graph = it }, multi, { multi = it }, Modifier.fillMaxWidth().weight(1f))
-            }
+            DockNode(root, dock, content, Modifier.fillMaxWidth().weight(1f))
         }
         if (showNew) NewComp(c, "Comp ${p.comps.size + 1}", { showNew = false }) { cm ->
             showNew = false
@@ -262,5 +318,6 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
             psel = cm.id
             scope.launch { Store.saveA(ctx, p) }
         }
+        DockOverlay(dock)
     }
 }

@@ -4,6 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
+import android.media.Image
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.util.LruCache
@@ -67,13 +72,25 @@ object Frames {
 
     fun get(m: Media, t: Float, pf: Boolean = false): Bitmap? {
         val v = ver
-        val b = if (m.kind == 1) maxOf((t * 8f).toInt(), 0) else 0
+        if (m.kind == 1 && pf) {
+            // playback: sequential hardware decode running ahead of the playhead
+            val d = VDecs.get(m)
+            if (d != null) {
+                val f = d.frameAt(t)
+                if (f != null) {
+                    synchronized(this) { last[m.id] = f }
+                    return f
+                }
+                val l = synchronized(this) { last[m.id] }
+                if (l != null) return l
+            }
+        }
+        val b = if (m.kind == 1) maxOf((t * 24f).toInt(), 0) else 0
         val k = m.id + ":" + b
         synchronized(this) {
             val h = cache.get(k)
             if (h != null) {
                 last[m.id] = h
-                if (pf && m.kind == 1) ahead(m, b + 1)
                 return h
             }
             want[m.id] = b
@@ -83,7 +100,7 @@ object Frames {
     }
 
     private fun ahead(m: Media, b: Int) {
-        if (b / 8f > m.dur) return
+        if (b / 24f > m.dur) return
         val k = m.id + ":" + b
         if (cache.get(k) == null && pend.add(k)) ex.execute { load(m, b, k, true) }
     }
@@ -99,7 +116,7 @@ object Frames {
                     val r = synchronized(rets) {
                         rets.getOrPut(m.id) { MediaMetadataRetriever().also { it.setDataSource(m.path) } }
                     }
-                    val f = r.getFrameAtTime(b * 125000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                    val f = r.getFrameAtTime(b * 41667L, MediaMetadataRetriever.OPTION_CLOSEST)
                     if (f != null) bmp = fit(f, 960)
                 }
             } catch (e: OutOfMemoryError) {
@@ -118,6 +135,7 @@ object Frames {
     }
 
     fun drop(id: String) {
+        VDecs.drop(id)
         synchronized(this) {
             for (k in cache.snapshot().keys) if (k.startsWith("$id:")) cache.remove(k)
             last.remove(id)
@@ -134,6 +152,7 @@ object Frames {
     }
 
     fun clear() {
+        VDecs.clear()
         synchronized(this) {
             cache.evictAll()
             last.clear()
@@ -181,16 +200,279 @@ object Thumbs {
     }
 }
 
+class DF(val pts: Long, val bmp: Bitmap)
+
+// Sequential MediaCodec video decoder. Runs on its own thread, stays about half a second ahead of the
+// requested time, drops frames when it falls behind, and shuts itself down when nobody asks for frames.
+class VDec(private val m: Media) {
+    private val q = ArrayList<DF>()
+    @Volatile private var want = 0L
+    @Volatile private var lastReq = 0L
+    @Volatile var failed = false
+    private var th: Thread? = null
+
+    fun kill() {
+        lastReq = 0L
+    }
+
+    fun frameAt(t: Float): Bitmap? {
+        val us = (t * 1e6f).toLong()
+        want = us
+        lastReq = System.nanoTime()
+        synchronized(this) {
+            if (th == null && !failed) {
+                val x = Thread { run() }
+                x.isDaemon = true
+                th = x
+                x.start()
+            }
+            if (q.isEmpty()) return null
+            var best = q[0]
+            for (f in q) {
+                if (f.pts <= us + 20_000L) best = f else break
+            }
+            if (best.pts > us + 500_000L) return null
+            while (q.size > 1 && q[0].pts < best.pts - 400_000L) q.removeAt(0)
+            return best.bmp
+        }
+    }
+
+    private fun conv(img: Image, rot: Int): Bitmap? {
+        val cr = img.cropRect
+        val iw = cr.width()
+        val ih = cr.height()
+        if (iw < 2 || ih < 2) return null
+        val s = maxOf((maxOf(iw, ih) + 719) / 720, 1)
+        val ow = iw / s
+        val oh = ih / s
+        val pl = img.planes
+        val yb = pl[0].buffer
+        val ub = pl[1].buffer
+        val vb = pl[2].buffer
+        val yrs = pl[0].rowStride
+        val yps = pl[0].pixelStride
+        val urs = pl[1].rowStride
+        val ups = pl[1].pixelStride
+        val vrs = pl[2].rowStride
+        val vps = pl[2].pixelStride
+        val out = IntArray(ow * oh)
+        var o = 0
+        for (j in 0 until oh) {
+            val y = cr.top + j * s
+            val yr = y * yrs
+            val cy = y shr 1
+            for (i in 0 until ow) {
+                val x = cr.left + i * s
+                val yy = (yb.get(yr + x * yps).toInt() and 0xFF) - 16
+                val uu = (ub.get(cy * urs + (x shr 1) * ups).toInt() and 0xFF) - 128
+                val vv = (vb.get(cy * vrs + (x shr 1) * vps).toInt() and 0xFF) - 128
+                val y1 = 1192 * (if (yy < 0) 0 else yy)
+                var r = (y1 + 1634 * vv) shr 10
+                var g = (y1 - 833 * vv - 400 * uu) shr 10
+                var b = (y1 + 2066 * uu) shr 10
+                if (r < 0) r = 0 else if (r > 255) r = 255
+                if (g < 0) g = 0 else if (g > 255) g = 255
+                if (b < 0) b = 0 else if (b > 255) b = 255
+                out[o++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        val bmp = Bitmap.createBitmap(out, ow, oh, Bitmap.Config.ARGB_8888)
+        if (rot == 0) return bmp
+        val mx = Matrix()
+        mx.postRotate(rot.toFloat())
+        val rb = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, mx, true)
+        if (rb !== bmp) bmp.recycle()
+        return rb
+    }
+
+    private fun run() {
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_VIDEO)
+        } catch (e: Exception) {
+        }
+        var ex: MediaExtractor? = null
+        var codec: MediaCodec? = null
+        try {
+            ex = MediaExtractor()
+            ex.setDataSource(m.path)
+            var tr = -1
+            var fmt: MediaFormat? = null
+            for (i in 0 until ex.trackCount) {
+                val f = ex.getTrackFormat(i)
+                if ((f.getString(MediaFormat.KEY_MIME) ?: "").startsWith("video/")) {
+                    tr = i
+                    fmt = f
+                    break
+                }
+            }
+            if (tr < 0 || fmt == null) {
+                failed = true
+                return
+            }
+            ex.selectTrack(tr)
+            val rot = if (fmt.containsKey(MediaFormat.KEY_ROTATION)) fmt.getInteger(MediaFormat.KEY_ROTATION) else 0
+            fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME)!!)
+            codec.configure(fmt, null, null, 0)
+            codec.start()
+            val info = MediaCodec.BufferInfo()
+            var inEos = false
+            var outEos = false
+            var decPos = -1L
+            var discard = 0L
+            var seekTo = want
+            var needSeek = true
+            var caught = false
+            while (!failed) {
+                if (System.nanoTime() - lastReq > 2_500_000_000L) break
+                val w = want
+                var n = 0
+                var first = -1L
+                synchronized(this) {
+                    n = q.size
+                    first = if (q.isEmpty()) -1L else q[0].pts
+                }
+                if (!needSeek) {
+                    val back = first >= 0 && w < first - 150_000L
+                    val back2 = first < 0 && caught && decPos >= 0 && w < decPos - 300_000L
+                    val fwd = caught && decPos >= 0 && w > decPos + 1_500_000L
+                    val far = !caught && Math.abs(w - seekTo) > 1_500_000L
+                    if (back || back2 || fwd || far) {
+                        needSeek = true
+                        seekTo = w
+                    }
+                }
+                if (needSeek) {
+                    codec.flush()
+                    ex.seekTo(seekTo, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                    synchronized(this) { q.clear() }
+                    inEos = false
+                    outEos = false
+                    decPos = -1L
+                    discard = seekTo - 150_000L
+                    caught = false
+                    needSeek = false
+                    n = 0
+                }
+                var prog = false
+                if (!inEos) {
+                    val ii = codec.dequeueInputBuffer(0)
+                    if (ii >= 0) {
+                        val ib = codec.getInputBuffer(ii)
+                        val sz = if (ib != null) ex.readSampleData(ib, 0) else -1
+                        if (sz < 0) {
+                            codec.queueInputBuffer(ii, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inEos = true
+                        } else {
+                            codec.queueInputBuffer(ii, 0, sz, ex.sampleTime, 0)
+                            ex.advance()
+                        }
+                        prog = true
+                    }
+                }
+                val full = n >= 10 || (caught && decPos >= w + 450_000L)
+                if (!full && !outEos) {
+                    val oi = codec.dequeueOutputBuffer(info, 0)
+                    if (oi >= 0) {
+                        val pts = info.presentationTimeUs
+                        decPos = pts
+                        if (pts >= seekTo - 20_000L) caught = true
+                        if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outEos = true
+                        // frames that are already late are skipped without the (costly) colour conversion
+                        if (info.size > 0 && pts >= discard && pts >= w - 150_000L) {
+                            val img = codec.getOutputImage(oi)
+                            if (img == null) {
+                                failed = true
+                            } else {
+                                val b = try {
+                                    conv(img, rot)
+                                } catch (e: Exception) {
+                                    null
+                                } finally {
+                                    img.close()
+                                }
+                                if (b == null) {
+                                    failed = true
+                                } else {
+                                    synchronized(this) {
+                                        q.add(DF(pts, b))
+                                        if (q.size > 1 && q[q.size - 2].pts > pts) q.sortBy { it.pts }
+                                    }
+                                }
+                            }
+                        }
+                        codec.releaseOutputBuffer(oi, false)
+                        prog = true
+                    }
+                }
+                if (!prog) Thread.sleep(3)
+            }
+        } catch (e: Throwable) {
+            if (e is OutOfMemoryError || e is Exception) failed = failed || e !is InterruptedException
+        } finally {
+            try {
+                codec?.stop()
+            } catch (e: Exception) {
+            }
+            try {
+                codec?.release()
+            } catch (e: Exception) {
+            }
+            try {
+                ex?.release()
+            } catch (e: Exception) {
+            }
+            synchronized(this) {
+                q.clear()
+                th = null
+            }
+        }
+    }
+}
+
+object VDecs {
+    private val m = HashMap<String, VDec>()
+
+    @Synchronized
+    fun get(md: Media): VDec? {
+        val d = m.getOrPut(md.id) { VDec(md) }
+        return if (d.failed) null else d
+    }
+
+    @Synchronized
+    fun drop(id: String) {
+        m.remove(id)?.kill()
+    }
+
+    @Synchronized
+    fun clear() {
+        for (d in m.values) d.kill()
+        m.clear()
+    }
+}
+
 object Aud {
     private val ps = HashMap<Layer, MediaPlayer>()
     private val ok = HashSet<MediaPlayer>()
+    private val go = HashSet<MediaPlayer>()
+    private val fix = HashMap<MediaPlayer, Long>()
 
     private fun mk(m: Media): MediaPlayer? = try {
         MediaPlayer().also {
             it.setDataSource(m.path)
             it.setOnPreparedListener { p -> ok.add(p) }
+            // start only once the seek has landed, so audio never begins at the wrong position
+            it.setOnSeekCompleteListener { p ->
+                if (go.remove(p)) {
+                    try {
+                        p.start()
+                    } catch (e: Exception) {
+                    }
+                }
+            }
             it.setOnErrorListener { p, _, _ ->
                 ok.remove(p)
+                go.remove(p)
                 true
             }
             it.prepareAsync()
@@ -202,46 +484,74 @@ object Aud {
     private fun rel(p: MediaPlayer?) {
         if (p == null) return
         ok.remove(p)
+        go.remove(p)
+        fix.remove(p)
         try {
             p.release()
         } catch (e: Exception) {
         }
     }
 
-    fun sync(c: Comp, on: Boolean) {
-        if (ps.isEmpty() && !on) return
-        if (ps.isNotEmpty()) {
-            val ei = ps.entries.iterator()
-            while (ei.hasNext()) {
-                val e = ei.next()
-                if (e.key !in c.layers) {
-                    rel(e.value)
-                    ei.remove()
-                }
+    private fun prune(c: Comp) {
+        if (ps.isEmpty()) return
+        val ei = ps.entries.iterator()
+        while (ei.hasNext()) {
+            val e = ei.next()
+            if (e.key !in c.layers) {
+                rel(e.value)
+                ei.remove()
             }
         }
+    }
+
+    // Prepare players ahead of time so pressing play has no start-up delay.
+    fun warm(c: Comp) {
+        prune(c)
+        val lib = c.lib
+        for (l in c.layers) {
+            if (l.kind < 1 || l.mute || ps.containsKey(l) || ps.size >= 8) continue
+            val m = lib.firstOrNull { it.id == l.mid } ?: continue
+            val p = mk(m) ?: continue
+            ps[l] = p
+        }
+    }
+
+    // Called ~8 times a second while playing (and once on stop): starts, pauses and only rarely corrects drift.
+    fun sync(c: Comp, on: Boolean) {
+        if (ps.isEmpty() && !on) return
+        prune(c)
+        val now = System.nanoTime()
         val lib = c.lib
         val ls = c.layers
         val solo = ls.any { it.solo }
         for (i in 0 until ls.size) {
             val l = ls[i]
             if (l.kind < 1) continue
-            val m = lib.firstOrNull { it.id == l.mid } ?: continue
             val act = on && !l.mute && (!solo || l.solo) && c.time >= l.start && c.time < l.end(c.dur)
             val p = ps[l]
             try {
                 if (act) {
-                    val q = p ?: (mk(m)?.also { ps[l] = it } ?: continue)
+                    val q = p ?: run {
+                        val m = lib.firstOrNull { it.id == l.mid }
+                        val np = if (m != null) mk(m) else null
+                        if (np != null) ps[l] = np
+                        np
+                    } ?: continue
                     if (!ok.contains(q)) continue
                     val want = ((c.time - l.start + l.off) * 1000f).toInt()
-                    if (!q.isPlaying) {
-                        q.seekTo(want)
-                        q.start()
-                    } else if (abs(q.currentPosition - want) > 300) {
-                        q.seekTo(want)
+                    if (q.isPlaying) {
+                        val d = abs(q.currentPosition - want)
+                        if (d > 250 && now - (fix[q] ?: 0L) > 1_000_000_000L) {
+                            fix[q] = now
+                            q.seekTo(want.toLong(), MediaPlayer.SEEK_CLOSEST)
+                        }
+                    } else if (!go.contains(q)) {
+                        go.add(q)
+                        q.seekTo(want.toLong(), MediaPlayer.SEEK_CLOSEST)
                     }
-                } else if (p != null && ok.contains(p) && p.isPlaying) {
-                    p.pause()
+                } else if (p != null && ok.contains(p)) {
+                    go.remove(p)
+                    if (p.isPlaying) p.pause()
                 }
             } catch (e: Exception) {
             }
@@ -252,5 +562,7 @@ object Aud {
         for (p in ps.values) rel(p)
         ps.clear()
         ok.clear()
+        go.clear()
+        fix.clear()
     }
 }

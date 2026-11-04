@@ -49,6 +49,9 @@ jobs:
           tree = ET.parse(manifest)
           root = tree.getroot()
           ns = '{http://schemas.android.com/apk/res/android}'
+          # Convert the bundle-generated base split into a standalone installable APK.
+          for attr in ('isSplitRequired', 'requiredSplitTypes', 'splitTypes'):
+              root.attrib.pop(ns + attr, None)
           app = root.find('application')
           for activity in list(app.findall('activity')):
               if activity.get(ns + 'name') == 'com.angkin.keyflow.MainActivity':

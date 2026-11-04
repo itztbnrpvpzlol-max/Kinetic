@@ -551,8 +551,31 @@ fun GraphView(
     for (g in rows) byProp[g.p] = g
     var hh by remember { mutableStateOf(1f) }
     var mq by remember { mutableStateOf<Rect?>(null) }
+    var speedMode by remember { mutableStateOf(false) }
     val pad = 10f
     val st = remember { GSt() }
+    fun speedAt(g: GRow, t: Float): Float {
+        val dt = (1f / comp.fps).coerceAtLeast(0.001f)
+        val ta = (t - dt).coerceAtLeast(0f)
+        val tb = (t + dt).coerceAtMost(comp.dur)
+        if (tb - ta <= 1e-6f) return 0f
+        return (g.toD(g.p.get(tb)) - g.toD(g.p.get(ta))) / (tb - ta)
+    }
+    if (speedMode) {
+        lo = Float.MAX_VALUE
+        hi = -Float.MAX_VALUE
+        for (g in rows) for (sample in 0..160) {
+            val v = speedAt(g, comp.dur * sample / 160f)
+            lo = minOf(lo, v)
+            hi = maxOf(hi, v)
+        }
+        if (rows.isEmpty()) { lo = -1f; hi = 1f }
+        if (hi - lo < 1e-3f) { lo -= 1f; hi += 1f }
+    }
+    val padv = (hi - lo) * 0.1f
+    val gmin = lo - padv
+    val gmax = hi + padv
+    fun graphValue(g: GRow, t: Float): Float = if (speedMode) speedAt(g, t) else g.toD(g.p.get(t))
     fun yOf(v: Float): Float = hh - pad - (v - gmin) / (gmax - gmin) * (hh - 2 * pad)
     fun vAt(y: Float): Float = gmin + (hh - pad - y) / (hh - 2 * pad) * (gmax - gmin)
 
@@ -629,7 +652,8 @@ fun GraphView(
 
     Column(m) {
         Canvas(
-            Modifier.weight(1f).fillMaxWidth().padding(1.dp).onSizeChanged { hh = maxOf(it.height.toFloat(), 1f) }.cur(
+            Modifier.weight(1f).fillMaxWidth().padding(1.dp).onSizeChanged { hh = maxOf(it.height.toFloat(), 1f) }.then(
+                if (speedMode) Modifier else Modifier.cur(
                 c,
                 drag = { o ->
                     if (st.mode == 1) {
@@ -686,6 +710,7 @@ fun GraphView(
                     st.mode = -1
                 }
             ) { o -> grab(o) }
+            )
         ) {
             for (n in 0..4) {
                 val y = pad + (size.height - 2 * pad) * n / 4f
@@ -703,7 +728,7 @@ fun GraphView(
                 var x = 0f
                 var first = true
                 while (x <= size.width) {
-                    val y = yOf(g.toD(g.p.get(xt(x))))
+                    val y = yOf(graphValue(g, xt(x)))
                     if (first) {
                         path.moveTo(x, y)
                         first = false
@@ -719,8 +744,8 @@ fun GraphView(
                 for (i in k.indices) {
                     val f = k[i]
                     val kx = xp(f.t)
-                    val ky = yOf(g.toD(f.v))
-                    if (f.sel && f.ip == 1) {
+                    val ky = yOf(if (speedMode) speedAt(g, f.t) else g.toD(f.v))
+                    if (!speedMode && f.sel && f.ip == 1) {
                         if (i + 1 < k.size) {
                             val dtn = k[i + 1].t - f.t
                             val oi = f.oi.coerceIn(0.001f, 1f)
@@ -756,6 +781,8 @@ fun GraphView(
             Modifier.fillMaxWidth().height(24.dp).background(CH).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            FlatBtn("Value", c, !speedMode) { speedMode = false }
+            FlatBtn("Speed", c, speedMode) { speedMode = true }
             Dd("Ease", c) {
                 listOf(
                     "Easy Ease" to { comp.easeKeys(3) },

@@ -247,3 +247,114 @@ class FastLayersPlugin : KineticPlugin {
         )
     }
 }
+
+/** A community plugin loaded from a declarative .knpl JSON package. */
+private class KnplCommunityPlugin(
+    override val manifest: PluginManifest,
+    private val actionSpecs: List<JSONObject>,
+    private val effectSpecs: List<JSONObject>
+) : KineticPlugin {
+    override fun onLoad(host: KineticPluginHost) {
+        actionSpecs.forEach { spec ->
+            val type = spec.optString("type")
+            val permission = when (type) {
+                "create_null", "create_adjustment", "create_solid" -> PluginPermission.LAYER_CREATE
+                "apply_effect" -> PluginPermission.EFFECT_APPLY
+                else -> error("Unsupported KNPL action type: $type")
+            }
+            host.registerAction(PluginAction(
+                id = spec.getString("id"),
+                title = spec.getString("title"),
+                description = spec.optString("description"),
+                permission = permission
+            ) {
+                when (type) {
+                    "create_null" -> addNull(spec.optString("layerName", "Plugin Null"))
+                    "create_adjustment" -> addAdjustmentLayer()
+                    "create_solid" -> addSolid(
+                        spec.optString("layerName", "Plugin Solid"),
+                        parseKnplColor(spec.optString("color", "#4A90E2"))
+                    )
+                    "apply_effect" -> applyEffect(spec.getInt("effectId"), spec.optDouble("amount", 0.5).toFloat())
+                }
+            })
+        }
+        effectSpecs.forEach { spec ->
+            host.registerEffect(PluginEffect(
+                id = spec.getString("id"),
+                name = spec.getString("name"),
+                description = spec.optString("description"),
+                renderEffectId = spec.getInt("renderEffectId"),
+                defaultAmount = spec.optDouble("defaultAmount", 0.5).toFloat()
+            ))
+        }
+    }
+    override fun onEnable(context: PluginContext) {}
+}
+
+private fun parseKnplColor(raw: String): Long {
+    val h = raw.trim().removePrefix("#")
+    val v = h.toLongOrNull(16) ?: error("Invalid KNPL color")
+    return when (h.length) {
+        6 -> 0xFF000000L or v
+        8 -> v
+        else -> error("KNPL colors must be #RRGGBB or #AARRGGBB")
+    }
+}
+
+/**
+ * KNPL v1 is JSON (UTF-8), not executable code. It may only register the
+ * documented declarative actions and render effects supported by this host.
+ */
+fun installKnpl(context: Context, uri: android.net.Uri): String {
+    val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        ?: error("Could not read plugin file")
+    val root = JSONObject(raw)
+    require(root.optString("format") == "KNPL") { "Not a KNPL plugin package" }
+    require(root.optInt("formatVersion", 0) == 1) { "Unsupported KNPL format version" }
+    val m = root.getJSONObject("manifest")
+    val api = m.optInt("apiVersion", 0)
+    require(api == KINETIC_PLUGIN_API_VERSION) { "Plugin requires API $api; Kinetic supports $KINETIC_PLUGIN_API_VERSION" }
+    val perms = linkedSetOf<PluginPermission>()
+    val pa = m.optJSONArray("permissions") ?: org.json.JSONArray()
+    for (i in 0 until pa.length()) {
+        perms += PluginPermission.values().firstOrNull { it.id == pa.getString(i) }
+            ?: error("Unknown plugin permission: ${pa.getString(i)}")
+    }
+    val actions = root.optJSONArray("actions") ?: org.json.JSONArray()
+    val effects = root.optJSONArray("effects") ?: org.json.JSONArray()
+    val actionSpecs = (0 until actions.length()).map { actions.getJSONObject(it) }
+    val effectSpecs = (0 until effects.length()).map { effects.getJSONObject(it) }
+    actionSpecs.forEach { spec ->
+        val type = spec.optString("type")
+        val needed = when (type) {
+            "create_null", "create_adjustment", "create_solid" -> PluginPermission.LAYER_CREATE
+            "apply_effect" -> PluginPermission.EFFECT_APPLY
+            else -> error("Unsupported KNPL action type: $type")
+        }
+        require(needed in perms) { "Plugin manifest is missing permission ${needed.id}" }
+        require(spec.optString("id").matches(Regex("[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}"))) { "Invalid action id" }
+        require(spec.optString("title").isNotBlank()) { "Action title is required" }
+        if (type == "apply_effect") require(spec.optInt("effectId") in 1..16) { "Unsupported render effect id" }
+        if (type == "create_solid") parseKnplColor(spec.optString("color", "#4A90E2"))
+    }
+    effectSpecs.forEach { spec ->
+        require(PluginPermission.EFFECT_APPLY in perms) { "Plugin manifest is missing effect.apply permission" }
+        require(spec.optInt("renderEffectId") in 1..16) { "Unsupported render effect id" }
+    }
+    val plugin = KnplCommunityPlugin(
+        PluginManifest(
+            id = m.getString("id"),
+            name = m.getString("name"),
+            version = m.getString("version"),
+            apiVersion = api,
+            author = m.optString("author", "Community"),
+            description = m.optString("description", "Community plugin"),
+            permissions = perms
+        ),
+        actionSpecs,
+        effectSpecs
+    )
+    PluginRegistry.install(plugin, perms)
+    return plugin.manifest.name
+}

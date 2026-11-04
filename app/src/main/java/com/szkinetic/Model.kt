@@ -349,6 +349,16 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var effectId by mutableIntStateOf(0)
     var effectAmount by mutableFloatStateOf(0.5f)
     val effects = mutableStateListOf<LayerEffect>()
+    var timeRemapEnabled by mutableStateOf(false)
+    val timeRemap = Prop(0f)
+
+    fun enableTimeRemap() {
+        if (timeRemapEnabled) return
+        timeRemapEnabled = true
+        timeRemap.k.clear()
+        timeRemap.k.add(Kf(start, off))
+        timeRemap.k.add(Kf(start + len, off + len))
+    }
 
     fun renderEffects(): List<LayerEffect> =
         if (effects.isNotEmpty()) effects.take(MAX_LAYER_EFFECTS)
@@ -432,6 +442,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.effectId = effectId
         q.effectAmount = effectAmount
         q.effects.addAll(effects)
+        q.timeRemapEnabled = timeRemapEnabled
+        q.timeRemap.copyFrom(timeRemap)
         q.parent = parent
         for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
         q.mid = mid
@@ -467,6 +479,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         val fx = JSONArray()
         for (effect in effects) fx.put(JSONArray().put(effect.id).put(effect.amount.toDouble()))
         o.put("fxs", fx)
+        o.put("trOn", timeRemapEnabled)
+        o.put("tr", timeRemap.js())
         val a = JSONArray()
         for (p in pr) a.put(p.js())
         o.put("pr", a)
@@ -503,6 +517,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
             l.pathClosed = o.optBoolean("pathClosed", true)
             l.effectId = o.optInt("fx", 0).coerceIn(0, 16)
             l.effectAmount = o.optDouble("fa", 0.5).toFloat().coerceIn(0f, 1f)
+            l.timeRemapEnabled = o.optBoolean("trOn", false)
+            o.optJSONObject("tr")?.let { l.timeRemap.load(it) }
             val fxs = o.optJSONArray("fxs")
             if (fxs != null) for (i in 0 until minOf(fxs.length(), MAX_LAYER_EFFECTS)) {
                 val pair = fxs.optJSONArray(i) ?: continue
@@ -1164,7 +1180,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             if (l.preCompId.isNotEmpty()) {
                 val nested = proj?.comps?.firstOrNull { it.id == l.preCompId } ?: continue
                 if (nested.id in nextChain) continue
-                val nestedTime = t - l.start + l.off
+                val nestedTime = if (l.timeRemapEnabled) l.timeRemap.get(t) else t - l.start + l.off
                 if (nestedTime < 0f || nestedTime > nested.dur) continue
                 val child = nested.frameAt(nestedTime, depth + 1, nextChain, renderPlaying)
                 val ratio = asp / (nested.w.toFloat() / nested.h)
@@ -1187,7 +1203,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                 ey = 1f
             } else if (l.kind >= 0) {
                 val media = lib.firstOrNull { it.id == l.mid } ?: continue
-                bm = Frames.get(media, t - l.start + l.off, renderPlaying) ?: continue
+                val sourceTime = if (l.timeRemapEnabled) l.timeRemap.get(t) else t - l.start + l.off
+                bm = Frames.get(media, sourceTime, renderPlaying) ?: continue
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp

@@ -303,7 +303,6 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     (if (graph) "Hide Graph Editor" else "Show Graph Editor") to { graph = !graph }
                 )
                 Mn("Window", c, *winItems.toTypedArray())
-                Mn("View", c, (if (c.on) "Hide virtual cursor" else "Show virtual cursor") to { c.on = !c.on })
                 Spacer(Modifier.weight(1f))
                 Text(p.name, color = GR, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
                 Spacer(Modifier.width(8.dp))

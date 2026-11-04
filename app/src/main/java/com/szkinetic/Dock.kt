@@ -64,7 +64,7 @@ fun defaultTree(): LNode = LSplit(
             listOf(
                 LGroup(listOf("proj")),
                 LGroup(listOf("comp")),
-                LGroup(listOf("info", "browser", "masks", "camera", "plugins"))
+                LGroup(listOf("info", "browser", "masks", "camera", "lighting", "plugins"))
             ),
             listOf(0.22f, 0.56f, 0.22f)
         ),

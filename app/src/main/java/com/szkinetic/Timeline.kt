@@ -629,14 +629,14 @@ fun GraphView(
                         val dtn = k[i + 1].t - f.t
                         val oi = f.oi.coerceIn(0.001f, 1f)
                         val hx = xp(f.t + oi * dtn)
-                        val hy = yOf(g.toD(f.v + f.osp * oi * dtn))
+                        val hy = if (speedMode) yOf(g.toD(f.v + f.osp) - g.toD(f.v)) else yOf(g.toD(f.v + f.osp * oi * dtn))
                         if (abs(o.x - hx) < 14f && abs(o.y - hy) < 14f) return GHit(1, gi, i, 1)
                     }
                     if (i > 0) {
                         val dtp = f.t - k[i - 1].t
                         val ii = f.ii.coerceIn(0.001f, 1f)
                         val hx = xp(f.t - ii * dtp)
-                        val hy = yOf(g.toD(f.v - f.isp * ii * dtp))
+                        val hy = if (speedMode) yOf(g.toD(f.v - f.isp) - g.toD(f.v)) else yOf(g.toD(f.v - f.isp * ii * dtp))
                         if (abs(o.x - hx) < 14f && abs(o.y - hy) < 14f) return GHit(1, gi, i, 0)
                     }
                 }
@@ -744,11 +744,13 @@ fun GraphView(
                             if (st.side == 1 && st.i + 1 < p.k.size) {
                                 val dtn = p.k[st.i + 1].t - f.t
                                 val oi = ((xt(o.x) - f.t) / dtn).coerceIn(0.001f, 1f)
-                                p.k[st.i] = f.copy(oi = oi, osp = (hv - f.v) / (oi * dtn))
+                                val slope = if (speedMode) hv - g.fromD(0f) else (hv - f.v) / (oi * dtn)
+                                p.k[st.i] = f.copy(oi = oi, osp = slope)
                             } else if (st.side == 0 && st.i > 0) {
                                 val dtp = f.t - p.k[st.i - 1].t
                                 val ii = ((f.t - xt(o.x)) / dtp).coerceIn(0.001f, 1f)
-                                p.k[st.i] = f.copy(ii = ii, isp = (f.v - hv) / (ii * dtp))
+                                val slope = if (speedMode) g.fromD(0f) - hv else (f.v - hv) / (ii * dtp)
+                                p.k[st.i] = f.copy(ii = ii, isp = slope)
                             }
                         }
                     } else if (st.mode == 3) {
@@ -805,12 +807,12 @@ fun GraphView(
                     val f = k[i]
                     val kx = xp(f.t)
                     val ky = yOf(if (speedMode) speedAt(g, f.t) else g.toD(f.v))
-                    if (!speedMode && f.sel && f.ip == 1) {
+                    if (f.sel && f.ip == 1) {
                         if (i + 1 < k.size) {
                             val dtn = k[i + 1].t - f.t
                             val oi = f.oi.coerceIn(0.001f, 1f)
                             val hx = xp(f.t + oi * dtn)
-                            val hy = yOf(g.toD(f.v + f.osp * oi * dtn))
+                            val hy = if (speedMode) yOf(g.toD(f.v + f.osp) - g.toD(f.v)) else yOf(g.toD(f.v + f.osp * oi * dtn))
                             drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
                             drawCircle(Color.White, 5f, Offset(hx, hy))
                         }
@@ -818,7 +820,7 @@ fun GraphView(
                             val dtp = f.t - k[i - 1].t
                             val ii = f.ii.coerceIn(0.001f, 1f)
                             val hx = xp(f.t - ii * dtp)
-                            val hy = yOf(g.toD(f.v - f.isp * ii * dtp))
+                            val hy = if (speedMode) yOf(g.toD(f.v - f.isp) - g.toD(f.v)) else yOf(g.toD(f.v - f.isp * ii * dtp))
                             drawLine(Color(0xFFCCCCCC), Offset(kx, ky), Offset(hx, hy), 1f)
                             drawCircle(Color.White, 5f, Offset(hx, hy))
                         }

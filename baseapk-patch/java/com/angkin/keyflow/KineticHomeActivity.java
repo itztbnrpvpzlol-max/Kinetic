@@ -142,7 +142,8 @@ public final class KineticHomeActivity extends Activity {
         startActivityForResult(i, request);
     }
     private void openEditor(Uri uri) {
-        Intent i = new Intent(this, MainActivity.class);
+        Intent i = new Intent();
+        i.setClassName(this, "com.angkin.keyflow.MainActivity");
         if (uri != null) {
             i.setAction(Intent.ACTION_VIEW);
             i.setData(uri);

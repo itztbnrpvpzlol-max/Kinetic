@@ -413,6 +413,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     var solo by mutableStateOf(false)
     var shy by mutableStateOf(false)
     var is3d by mutableStateOf(false)
+    var spatial by mutableStateOf(false)
     var link by mutableStateOf(true)
     var open by mutableStateOf(false)
     var tOpen by mutableStateOf(false)
@@ -428,6 +429,36 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     }
 
     fun gv(i: Int, t: Float): Float = pr[i].get(t)
+
+    // Smooth spatial interpolation couples Position X/Y into one Catmull-Rom path.
+    fun position(t: Float): Pair<Float, Float> {
+        val px = pr[PX]
+        val py = pr[PY]
+        val keys = px.k
+        if (!spatial || keys.size < 2 || px.expression != 0 || py.expression != 0) {
+            return px.get(t) to py.get(t)
+        }
+        if (t <= keys.first().t) return keys.first().v to py.get(keys.first().t)
+        if (t >= keys.last().t) return keys.last().v to py.get(keys.last().t)
+        var i = 0
+        while (i < keys.lastIndex - 1 && keys[i + 1].t < t) i++
+        val a = keys[i]
+        val b = keys[i + 1]
+        val dt = b.t - a.t
+        if (dt <= 1e-6f) return b.v to py.get(b.t)
+        val p0x = a.v
+        val p0y = py.get(a.t)
+        val p3x = b.v
+        val p3y = py.get(b.t)
+        val prev = keys[(i - 1).coerceAtLeast(0)]
+        val next = keys[(i + 2).coerceAtMost(keys.lastIndex)]
+        val p1x = p0x + (p3x - prev.v) / 6f
+        val p1y = p0y + (p3y - py.get(prev.t)) / 6f
+        val p2x = p3x - (next.v - p0x) / 6f
+        val p2y = p3y - (py.get(next.t) - p0y) / 6f
+        val u = ((t - a.t) / dt).coerceIn(0f, 1f)
+        return bz(p0x, p1x, p2x, p3x, u) to bz(p0y, p1y, p2y, p3y, u)
+    }
 
     fun end(d: Float) = minOf(start + len, d)
 
@@ -457,6 +488,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.mute = mute
         q.shy = shy
         q.is3d = is3d
+        q.spatial = spatial
         q.link = link
         return q
     }
@@ -496,6 +528,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         o.put("so", solo)
         o.put("sh", shy)
         o.put("3d", is3d)
+        o.put("sp", spatial)
         o.put("sl", link)
         return o
     }
@@ -561,6 +594,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
             l.solo = o.optBoolean("so", false)
             l.shy = o.optBoolean("sh", false)
             l.is3d = o.optBoolean("3d", false)
+            l.spatial = o.optBoolean("sp", false)
             l.link = o.optBoolean("sl", true)
             return l
         }
@@ -1055,8 +1089,9 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             pw = world(par, t, asp, memo, depth + 1)
             if (pw == null) return null
         }
-        var tx = l.gv(PX, t) * asp
-        var ty = l.gv(PY, t)
+        val position = l.position(t)
+        var tx = position.first * asp
+        var ty = position.second
         var sx = l.gv(SX, t)
         var sy = l.gv(SY, t)
         if (l.is3d) {

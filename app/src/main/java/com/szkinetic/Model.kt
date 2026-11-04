@@ -288,6 +288,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
     val pathPoints = mutableStateListOf<PathPoint>()
     var pathClosed by mutableStateOf(true)
     @Transient var pathBitmap: Bitmap? = null
+    var effectId by mutableIntStateOf(0)
+    var effectAmount by mutableFloatStateOf(0.5f)
     var parent by mutableStateOf("")
     val pr = Array(NCH) { Prop(PDEF[it]) }
     var mid by mutableStateOf("")
@@ -328,6 +330,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         q.pathPoints.addAll(pathPoints)
         q.pathClosed = pathClosed
         q.pathBitmap = pathBitmap
+        q.effectId = effectId
+        q.effectAmount = effectAmount
         q.parent = parent
         for (i in 0 until NCH) q.pr[i].copyFrom(pr[i])
         q.mid = mid
@@ -358,6 +362,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         for (pt in pathPoints) pts.put(JSONArray().put(pt.x.toDouble()).put(pt.y.toDouble()))
         o.put("path", pts)
         o.put("pathClosed", pathClosed)
+        o.put("fx", effectId)
+        o.put("fa", effectAmount.toDouble())
         val a = JSONArray()
         for (p in pr) a.put(p.js())
         o.put("pr", a)
@@ -392,6 +398,8 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
                 if (pt.length() >= 2) l.pathPoints.add(PathPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat()))
             }
             l.pathClosed = o.optBoolean("pathClosed", true)
+            l.effectId = o.optInt("fx", 0).coerceIn(0, 12)
+            l.effectAmount = o.optDouble("fa", 0.5).toFloat().coerceIn(0f, 1f)
             val pa = o.optJSONArray("pr")
             if (pa != null) {
                 for (i in 0 until minOf(pa.length(), NCH)) l.pr[i].load(pa.getJSONObject(i))
@@ -433,7 +441,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
 }
 
 // Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
-const val STR = 13
+const val STR = 14
 
 class PRef(val id: String, val name: String, val p: Prop)
 class KSnap(val p: Prop, val orig: List<Kf>)
@@ -541,6 +549,28 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     fun addAdjustment() {
         val n = layers.count { it.role == 2 } + 1
         addLayer(Layer("Adjustment Layer $n", 0xFFFFFFFF, 0f, 0f, 1f, 0f).also { it.role = 2 })
+    }
+
+    fun applyEffect(effectId: Int) {
+        if (effectId !in 1..12) return
+        val targets = selected().filter { it.role != 1 && it.role != 2 }
+        if (targets.isEmpty()) return
+        mark()
+        targets.forEach { it.effectId = effectId; it.effectAmount = 0.5f }
+    }
+
+    fun adjustEffectAmount(delta: Float) {
+        val targets = selected().filter { it.effectId != 0 }
+        if (targets.isEmpty()) return
+        mark()
+        targets.forEach { it.effectAmount = (it.effectAmount + delta).coerceIn(0f, 1f) }
+    }
+
+    fun clearEffect() {
+        val targets = selected().filter { it.effectId != 0 }
+        if (targets.isEmpty()) return
+        mark()
+        targets.forEach { it.effectId = 0 }
     }
 
     fun addPenPath(points: List<PathPoint>, color: Long = 0xFF4A90E2, closed: Boolean = true) {
@@ -970,6 +1000,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             out[o + 10] = data[offset + 10]
             out[o + 11] = data[offset + 11]
             out[o + 12] = data[offset + 12]
+            out[o + 13] = data[offset + 13]
             bitmaps[count] = bm
             count++
         }
@@ -1041,6 +1072,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             item[9] = op
             item[10] = ex
             item[11] = ey
+            item[12] = l.effectId.toFloat()
+            item[13] = l.effectAmount
             append(item, 0, bm)
         }
         return Frame(out.copyOf(count * STR), bitmaps.copyOf(count))

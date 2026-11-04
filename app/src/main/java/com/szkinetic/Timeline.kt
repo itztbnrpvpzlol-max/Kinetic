@@ -93,9 +93,20 @@ fun buildRows(comp: Comp, shy: Boolean, q: String): List<TR> {
         val defs = tdefs(l)
         if (l.animOnly) {
             for (d in defs) if (d.ch.any { l.pr[it].anim }) r.add(tp(comp, l, d, 1))
+            if (l.timeRemapEnabled && l.timeRemap.anim) {
+                r.add(TProp(l, "Time Remap", listOf(l.timeRemap), "s", 1f, -comp.dur, comp.dur * 2f,
+                    { _, v -> v }, { _, v -> l.timeRemap.set(comp.time, v, comp.eps()) },
+                    { _ -> l.timeRemap.set(comp.time, l.off + comp.time - l.start, comp.eps()) }, false, 1))
+            }
         } else {
             r.add(TGroup(l, "Transform", 0))
             if (l.tOpen) for (d in defs) r.add(tp(comp, l, d, 2))
+            if (l.timeRemapEnabled) {
+                r.add(TGroup(l, "Time Remap", 3))
+                r.add(TProp(l, "Time Remap", listOf(l.timeRemap), "s", 1f, -comp.dur, comp.dur * 2f,
+                    { _, v -> v }, { _, v -> l.timeRemap.set(comp.time, v, comp.eps()) },
+                    { _ -> l.timeRemap.set(comp.time, l.off + comp.time - l.start, comp.eps()) }, false, 2))
+            }
         }
     }
     return r
@@ -556,6 +567,10 @@ fun GraphView(
                 ci++
             }
         }
+        if (l.timeRemapEnabled && l.timeRemap.anim) {
+            rows.add(GRow(l.name + "  Time Remap", l.timeRemap, { v -> v }, { v -> v }, GPAL[ci % GPAL.size]))
+            ci++
+        }
     }
     var lo = Float.MAX_VALUE
     var hi = -Float.MAX_VALUE
@@ -827,6 +842,12 @@ fun GraphView(
             Modifier.fillMaxWidth().height(24.dp).background(CH).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            FlatBtn("Remap", c, comp.selected().any { it.timeRemapEnabled }) {
+                comp.mark()
+                comp.selected().forEach { layer ->
+                    if (layer.timeRemapEnabled) layer.timeRemapEnabled = false else layer.enableTimeRemap()
+                }
+            }
             FlatBtn("Value", c, !speedMode) { speedMode = false }
             FlatBtn("Speed", c, speedMode) { speedMode = true }
             Dd("Ease", c) {

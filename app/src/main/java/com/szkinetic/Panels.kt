@@ -578,8 +578,10 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
         if (matches.isEmpty()) null else category to matches
     }
-    val target = comp?.selected()?.firstOrNull()
+    val selectedLayers = comp?.selected().orEmpty()
+    val target = selectedLayers.firstOrNull { it.role != 1 && it.role != 2 }
     val stack = target?.renderEffects().orEmpty()
+    val canApply = selectedLayers.any { it.role != 1 && it.role != 2 && it.renderEffects().size < 8 }
 
     Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(
@@ -635,30 +637,31 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(name, color = TXT, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                        FlatBtn("−", c) {
+                        if (entry.amount > 0f) FlatBtn("−", c) {
                             comp?.mark()
-                            target.removeEffect(index)
+                            target.setEffectAmount(index, entry.amount - 0.05f)
                             comp?.invalidateFrames()
                         }
-                        FlatBtn("+", c) {
+                        if (entry.amount < 1f) FlatBtn("+", c) {
                             comp?.mark()
                             target.setEffectAmount(index, entry.amount + 0.05f)
                             comp?.invalidateFrames()
                         }
                         Text("${(entry.amount * 100f).toInt()}%", color = VB, fontSize = 9.sp)
-                        FlatBtn("↑", c, index == 0) {
-                            if (index > 0) {
-                                comp?.mark()
-                                target.moveEffect(index, index - 1)
-                                comp?.invalidateFrames()
-                            }
+                        FlatBtn("×", c) {
+                            comp?.mark()
+                            target.removeEffect(index)
+                            comp?.invalidateFrames()
                         }
-                        FlatBtn("↓", c, index == stack.lastIndex) {
-                            if (index < stack.lastIndex) {
-                                comp?.mark()
-                                target.moveEffect(index, index + 1)
-                                comp?.invalidateFrames()
-                            }
+                        if (index > 0) FlatBtn("↑", c) {
+                            comp?.mark()
+                            target.moveEffect(index, index - 1)
+                            comp?.invalidateFrames()
+                        }
+                        if (index < stack.lastIndex) FlatBtn("↓", c) {
+                            comp?.mark()
+                            target.moveEffect(index, index + 1)
+                            comp?.invalidateFrames()
                         }
                     }
                 }
@@ -698,12 +701,11 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
                             val renderEffect = RenderEffects.byName(effect.name)
                             Row(
                                 Modifier.fillMaxWidth().height(34.dp)
-                                    .background(Color(0xFF202020))
+                                    .background(if (canApply) Color(0xFF202020) else Color(0xFF191919))
                                     .cur(c) {
-                                        if (renderEffect != null && comp != null) {
-                                            comp.mark()
-                                            comp.applyEffect(renderEffect.id)
-                                            comp.invalidateFrames()
+                                        if (renderEffect != null && canApply) {
+                                            comp?.applyEffect(renderEffect.id)
+                                            comp?.invalidateFrames()
                                         }
                                     }
                                     .padding(start = 25.dp, end = 8.dp),
@@ -711,8 +713,8 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
                             ) {
                                 Box(Modifier.size(6.dp).background(AC, RoundedCornerShape(1.dp)))
                                 Spacer(Modifier.width(8.dp))
-                                Text(effect.name, color = TXT, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                                Text("ADD", color = VB, fontSize = 9.sp)
+                                Text(effect.name, color = if (canApply) TXT else DIM, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                Text(if (canApply) "ADD" else if (target == null) "SELECT LAYER" else "LIMIT", color = if (canApply) VB else DIM, fontSize = 8.sp)
                             }
                         }
                     }

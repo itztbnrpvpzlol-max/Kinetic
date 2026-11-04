@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,7 +47,8 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
             cid = prev
         }
     }
-    var root by remember { mutableStateOf(LayoutStore.loadCurrent(ctx) ?: defaultTree()) }
+    val compactUi = LocalConfiguration.current.screenWidthDp < 600
+    var root by remember(compactUi) { mutableStateOf(if (compactUi) compactTree() else LayoutStore.loadCurrent(ctx) ?: defaultTree()) }
     val rootS = rememberUpdatedState(root)
     val dock = remember { DockCtx(c, { rootS.value }, { root = it }) }
     var tool by remember { mutableStateOf(0) }
@@ -72,13 +74,13 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     }
     val doImp = { imp.launch(arrayOf("video/*", "audio/*", "image/*")) }
     val lo = LocalLifecycleOwner.current
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(compactUi) {
+        if (!compactUi) while (true) {
             delay(3000)
             LayoutStore.saveCurrent(ctx, rootS.value)
         }
     }
-    DisposableEffect(Unit) { onDispose { LayoutStore.saveCurrent(ctx, rootS.value) } }
+    DisposableEffect(compactUi) { onDispose { if (!compactUi) LayoutStore.saveCurrent(ctx, rootS.value) } }
     LaunchedEffect(p) {
         var last = withContext(Dispatchers.Default) { p.js().toString() }
         while (true) {
@@ -306,40 +308,20 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                 Text(p.name, color = GR, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
                 Spacer(Modifier.width(8.dp))
             }
-            // ---- tools bar
-            Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF2B2B2B)), verticalAlignment = Alignment.CenterVertically) {
-                Spacer(Modifier.width(4.dp))
+            // ---- compact, functional tool bar: no placeholder tools or decorative controls
+            Row(
+                Modifier.fillMaxWidth().height(34.dp).background(Color(0xFF2B2B2B)).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
                 ToolIc(0, false, c) { onBack() }
-                Spacer(Modifier.width(6.dp))
                 ToolIc(1, tool == 0, c) { tool = 0 }
                 ToolIc(2, tool == 1, c) { tool = 1 }
                 ToolIc(3, tool == 2, c) { tool = 2 }
-                ToolIc(4, false, c) { note("Rotation tool is not available yet") }
-                ToolIc(5, false, c) { note("Camera tool is not available yet") }
-                Spacer(Modifier.width(6.dp))
-                ToolIc(6, false, c) { comp?.add(); Unit }
                 ToolIc(7, tool == 3, c) { tool = 3 }
-                ToolIc(8, false, c) { note("Text tool is not available yet") }
-                ToolIc(9, false, c) { note("Brush tool is not available yet") }
-                ToolIc(10, false, c) { note("Eraser tool is not available yet") }
-                ToolIc(11, false, c) { note("Puppet pin tool is not available yet") }
-                Spacer(Modifier.width(10.dp))
-                Text("Fill:", color = TXT, fontSize = 10.sp)
-                Spacer(Modifier.width(3.dp))
-                Box(Modifier.size(16.dp, 12.dp).background(Color(0xFFD9F02A)))
-                Spacer(Modifier.width(8.dp))
-                Text("Stroke:", color = TXT, fontSize = 10.sp)
-                Spacer(Modifier.width(3.dp))
-                Box(Modifier.size(16.dp, 12.dp).background(Color.White))
-                Spacer(Modifier.width(3.dp))
-                Text("2 px", color = TXT, fontSize = 10.sp)
-                Spacer(Modifier.width(8.dp))
-                Text("Add: \u25CF", color = TXT, fontSize = 10.sp)
+                ToolIc(6, false, c) { comp?.add(); Unit }
                 Spacer(Modifier.weight(1f))
-                Text("Essentials", color = Color.White, fontSize = 10.sp)
-                Spacer(Modifier.width(8.dp))
-                Text("Standard", color = DIM, fontSize = 10.sp)
-                Spacer(Modifier.width(10.dp))
+                Text(if (tool == 0) "Selection" else if (tool == 1) "Hand" else if (tool == 2) "Zoom" else "Pen", color = DIM, fontSize = 10.sp)
             }
             DockNode(root, dock, content, Modifier.fillMaxWidth().weight(1f))
         }

@@ -72,6 +72,29 @@ void main(){
         src=texture2D(tx,vec2(cell.x,1.0-cell.y));
         rgb=src.rgb;
     }
+    else if(k>12.5 && k<13.5){
+        float angle=(v-0.5)*6.2831853;
+        mat3 toYiq=mat3(0.299,0.587,0.114,0.596,-0.274,-0.322,0.211,-0.523,0.312);
+        mat3 toRgb=mat3(1.0,0.956,0.621,1.0,-0.272,-0.647,1.0,-1.106,1.703);
+        vec3 yiq=toYiq*rgb;
+        float cs=cos(angle), sn=sin(angle);
+        yiq.yz=mat2(cs,-sn,sn,cs)*yiq.yz;
+        rgb=clamp(toRgb*yiq,0.0,1.0);
+    }
+    else if(k>13.5 && k<14.5){
+        vec3 tint=vec3(1.0,0.72,0.42);
+        rgb=mix(rgb,clamp(rgb*tint*1.35,0.0,1.0),v);
+    }
+    else if(k>14.5 && k<15.5){
+        float line=0.5+0.5*cos(uv.y*720.0);
+        rgb*=1.0-v*0.28*(1.0-line);
+    }
+    else if(k>15.5 && k<16.5 && u>0.5){
+        float shift=v*0.012;
+        float red=texture2D(tx,vec2(clamp(uv.x+shift,0.0,1.0),1.0-uv.y)).r;
+        float blue=texture2D(tx,vec2(clamp(uv.x-shift,0.0,1.0),1.0-uv.y)).b;
+        rgb=vec3(red,rgb.g,blue);
+    }
     gl_FragColor=vec4(rgb*col.a,src.a*col.a);
 }
 """

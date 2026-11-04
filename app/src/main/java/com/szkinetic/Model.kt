@@ -1347,7 +1347,6 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                 val media = lib.firstOrNull { it.id == l.mid } ?: continue
                 val sourceTime = if (l.timeRemapEnabled) l.timeRemap.get(t) else t - l.start + l.off
                 bm = Frames.get(media, sourceTime, renderPlaying) ?: continue
-                if (l.maskEnabled) bm = l.applyMask(bm)
                 val ma = bm.width.toFloat() / bm.height
                 if (ma >= asp) {
                     ex = asp
@@ -1357,6 +1356,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                     ey = 1f
                 }
             }
+            if (bm != null && l.maskEnabled) bm = l.applyMask(bm)
             val item = FloatArray(STR)
             item[0] = parentWorld.a
             item[1] = parentWorld.b

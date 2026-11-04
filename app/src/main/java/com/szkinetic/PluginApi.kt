@@ -309,6 +309,24 @@ private fun parseKnplColor(raw: String): Long {
 fun installKnpl(context: Context, uri: android.net.Uri): String {
     val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
         ?: error("Could not read plugin file")
+    val name = installKnplText(raw)
+    val folder = java.io.File(context.filesDir, "community-plugins").also { it.mkdirs() }
+    val root = JSONObject(raw)
+    val id = root.getJSONObject("manifest").getString("id")
+    java.io.File(folder, "$id.knpl").writeText(raw)
+    return name
+}
+
+fun loadKnplDirectory(context: Context) {
+    val folder = java.io.File(context.filesDir, "community-plugins")
+    if (!folder.exists()) return
+    folder.listFiles { file -> file.isFile && file.extension.equals("knpl", true) }
+        ?.forEach { file ->
+            try { installKnplText(file.readText()) } catch (_: Exception) { }
+        }
+}
+
+private fun installKnplText(raw: String): String {
     val root = JSONObject(raw)
     require(root.optString("format") == "KNPL") { "Not a KNPL plugin package" }
     require(root.optInt("formatVersion", 0) == 1) { "Unsupported KNPL format version" }
@@ -355,6 +373,6 @@ fun installKnpl(context: Context, uri: android.net.Uri): String {
         actionSpecs,
         effectSpecs
     )
-    PluginRegistry.install(plugin, perms)
+    if (PluginRegistry.all().none { it.manifest.id == plugin.manifest.id }) PluginRegistry.install(plugin, perms)
     return plugin.manifest.name
 }

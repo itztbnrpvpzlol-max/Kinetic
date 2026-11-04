@@ -28,7 +28,8 @@ data class Kf(
     val oi: Float = 1f / 3f,
     val osp: Float = 0f,
     val sel: Boolean = false,
-    val spatialManual: Boolean = false,
+    val spatialInManual: Boolean = false,
+    val spatialOutManual: Boolean = false,
     val six: Float = 0f,
     val siy: Float = 0f,
     val sox: Float = 0f,
@@ -252,7 +253,7 @@ class Prop(val def: Float) {
             a.put(
                 JSONArray().put(f.t.toDouble()).put(f.v.toDouble()).put(f.ip)
                      .put(f.ii.toDouble()).put(f.isp.toDouble()).put(f.oi.toDouble()).put(f.osp.toDouble())
-                    .put(f.spatialManual).put(f.six.toDouble()).put(f.siy.toDouble()).put(f.sox.toDouble()).put(f.soy.toDouble())
+                    .put(f.spatialInManual).put(f.spatialOutManual).put(f.six.toDouble()).put(f.siy.toDouble()).put(f.sox.toDouble()).put(f.soy.toDouble())
             )
         }
         o.put("k", a)
@@ -274,8 +275,8 @@ class Prop(val def: Float) {
                     b.getDouble(0).toFloat(), b.getDouble(1).toFloat(), b.optInt(2, 0),
                     b.optDouble(3, 1.0 / 3.0).toFloat(), b.optDouble(4, 0.0).toFloat(),
                     b.optDouble(5, 1.0 / 3.0).toFloat(), b.optDouble(6, 0.0).toFloat(), false,
-                    b.optBoolean(7, false), b.optDouble(8, 0.0).toFloat(), b.optDouble(9, 0.0).toFloat(),
-                    b.optDouble(10, 0.0).toFloat(), b.optDouble(11, 0.0).toFloat()
+                    b.optBoolean(7, false), b.optBoolean(8, false), b.optDouble(9, 0.0).toFloat(),
+                    b.optDouble(10, 0.0).toFloat(), b.optDouble(11, 0.0).toFloat(), b.optDouble(12, 0.0).toFloat()
                 )
             )
         }
@@ -464,10 +465,10 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
         val autoOutY = (py.get(next.t) - py.get(prev.t)) / 6f
         val autoInX = -autoOutX
         val autoInY = -autoOutY
-        val p1x = p0x + if (a.spatialManual) a.sox else autoOutX
-        val p1y = p0y + if (a.spatialManual) a.soy else autoOutY
-        val p2x = p3x + if (b.spatialManual) b.six else autoInX
-        val p2y = p3y + if (b.spatialManual) b.siy else autoInY
+        val p1x = p0x + if (a.spatialOutManual) a.sox else autoOutX
+        val p1y = p0y + if (a.spatialOutManual) a.soy else autoOutY
+        val p2x = p3x + if (b.spatialInManual) b.six else autoInX
+        val p2y = p3y + if (b.spatialInManual) b.siy else autoInY
         val u = ((t - a.t) / dt).coerceIn(0f, 1f)
         return bz(p0x, p1x, p2x, p3x, u) to bz(p0y, p1y, p2y, p3y, u)
     }

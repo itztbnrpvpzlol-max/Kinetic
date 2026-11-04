@@ -101,8 +101,7 @@ fun buildRows(comp: Comp, shy: Boolean, q: String): List<TR> {
         } else {
             r.add(TGroup(l, "Transform", 0))
             if (l.tOpen) for (d in defs) r.add(tp(comp, l, d, 2))
-            if (l.timeRemapEnabled) {
-                r.add(TGroup(l, "Time Remap", 3))
+            if (l.timeRemapEnabled && l.tOpen) {
                 r.add(TProp(l, "Time Remap", listOf(l.timeRemap), "s", 1f, -comp.dur, comp.dur * 2f,
                     { _, v -> v }, { _, v -> l.timeRemap.set(comp.time, v, comp.eps()) },
                     { _ -> l.timeRemap.set(comp.time, l.off + comp.time - l.start, comp.eps()) }, false, 2))

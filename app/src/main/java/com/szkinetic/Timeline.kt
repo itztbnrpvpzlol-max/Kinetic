@@ -549,6 +549,133 @@ private val GPAL = listOf(
     Color(0xFFE0605A), Color(0xFF5FC25F), Color(0xFF5A90E0), Color(0xFFE0C050), Color(0xFFB070E0), Color(0xFF50C8C8)
 )
 
+private data class SpatialHandle(val x: Float, val y: Float)
+
+private fun spatialHandle(layer: Layer, index: Int, outgoing: Boolean): SpatialHandle {
+    val px = layer.pr[PX]
+    val py = layer.pr[PY]
+    val k = px.k
+    val f = k[index]
+    if (f.spatialManual) {
+        return if (outgoing) SpatialHandle(f.sox, f.soy) else SpatialHandle(f.six, f.siy)
+    }
+    val prev = k[(index - 1).coerceAtLeast(0)]
+    val next = k[(index + 1).coerceAtMost(k.lastIndex)]
+    val dx = (next.v - prev.v) / 6f
+    val dy = (py.get(next.t) - py.get(prev.t)) / 6f
+    return if (outgoing) SpatialHandle(dx, dy) else SpatialHandle(-dx, -dy)
+}
+
+@Composable
+private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifier) {
+    val px = layer.pr[PX]
+    val py = layer.pr[PY]
+    var selected by remember(layer) { mutableIntStateOf(0) }
+    var dragIndex by remember(layer) { mutableIntStateOf(-1) }
+    var dragSide by remember(layer) { mutableIntStateOf(-1) }
+    val keys = px.k
+    val points = keys.map { it.v to py.get(it.t) }
+    val minX = (points.minOfOrNull { it.first } ?: 0f)
+    val maxX = (points.maxOfOrNull { it.first } ?: 1f)
+    val minY = (points.minOfOrNull { it.second } ?: 0f)
+    val maxY = (points.maxOfOrNull { it.second } ?: 1f)
+    val rangeX = (maxX - minX).coerceAtLeast(1f)
+    val rangeY = (maxY - minY).coerceAtLeast(1f)
+    Canvas(
+        modifier.pointerInput(layer, keys.toList(), py.k.toList()) {
+            fun screen(x: Float, y: Float): Offset {
+                val pad = 28f
+                return Offset(
+                    pad + (x - minX) / rangeX * (size.width - 2f * pad),
+                    size.height - pad - (y - minY) / rangeY * (size.height - 2f * pad)
+                )
+            }
+            detectDragGestures(
+                onDragStart = { o ->
+                    var best = 18f
+                    dragIndex = -1
+                    dragSide = -1
+                    for (i in keys.indices) for (side in 0..1) {
+                        val h = spatialHandle(layer, i, side == 1)
+                        val base = points[i]
+                        val p = screen(base.first + h.x, base.second + h.y)
+                        val d = (p - o).getDistance()
+                        if (d < best) { best = d; dragIndex = i; dragSide = side }
+                    }
+                    if (dragIndex < 0) {
+                        var keyBest = 18f
+                        for (i in points.indices) {
+                            val p = screen(points[i].first, points[i].second)
+                            val d = (p - o).getDistance()
+                            if (d < keyBest) { keyBest = d; selected = i }
+                        }
+                    } else {
+                        selected = dragIndex
+                        comp.mark()
+                    }
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    if (dragIndex >= 0 && dragIndex in keys.indices) {
+                        val pad = 28f
+                        val wx = minX + ((change.position.x - pad) / (size.width - 2f * pad).coerceAtLeast(1f)) * rangeX
+                        val wy = minY + ((size.height - pad - change.position.y) / (size.height - 2f * pad).coerceAtLeast(1f)) * rangeY
+                        val base = points[dragIndex]
+                        val f = keys[dragIndex]
+                        keys[dragIndex] = if (dragSide == 1) f.copy(
+                            spatialManual = true, sox = wx - base.first, soy = wy - base.second
+                        ) else f.copy(
+                            spatialManual = true, six = wx - base.first, siy = wy - base.second
+                        )
+                    }
+                },
+                onDragEnd = { dragIndex = -1; dragSide = -1 },
+                onDragCancel = { dragIndex = -1; dragSide = -1 }
+            )
+        }
+    ) {
+        if (points.size < 2) {
+            drawContext.canvas.nativeCanvas.let { }
+            return@Canvas
+        }
+        fun screen(x: Float, y: Float): Offset {
+            val pad = 28f
+            return Offset(
+                pad + (x - minX) / rangeX * (size.width - 2f * pad),
+                size.height - pad - (y - minY) / rangeY * (size.height - 2f * pad)
+            )
+        }
+        val path = Path()
+        val first = screen(points.first().first, points.first().second)
+        path.moveTo(first.x, first.y)
+        for (i in 0 until points.lastIndex) {
+            val a = points[i]
+            val b = points[i + 1]
+            val ah = spatialHandle(layer, i, true)
+            val bh = spatialHandle(layer, i + 1, false)
+            val p1 = screen(a.first + ah.x, a.second + ah.y)
+            val p2 = screen(b.first + bh.x, b.second + bh.y)
+            val end = screen(b.first, b.second)
+            path.cubicTo(p1.x, p1.y, p2.x, p2.y, end.x, end.y)
+        }
+        drawPath(path, Color(0xFF65A5F5), style = Stroke(2f))
+        if (selected in points.indices) {
+            val base = points[selected]
+            for (side in 0..1) {
+                val h = spatialHandle(layer, selected, side == 1)
+                val hp = screen(base.first + h.x, base.second + h.y)
+                val kp = screen(base.first, base.second)
+                drawLine(Color(0xFFCCCCCC), kp, hp, 1.5f)
+                drawCircle(Color.White, 5f, hp)
+            }
+        }
+        for (i in points.indices) {
+            val p = screen(points[i].first, points[i].second)
+            drawCircle(if (i == selected) Color(0xFFFFD166) else Color.White, if (i == selected) 6f else 4.5f, p)
+        }
+    }
+}
+
 @Composable
 fun GraphView(
     comp: Comp, c: Cur, xp: (Float) -> Float, xt: (Float) -> Float, pps: Float, multi: Boolean, lt: Lt, m: Modifier
@@ -591,6 +718,7 @@ fun GraphView(
     var hh by remember { mutableStateOf(1f) }
     var mq by remember { mutableStateOf<Rect?>(null) }
     var speedMode by remember { mutableStateOf(false) }
+    var spatialMode by remember { mutableStateOf(false) }
     val pad = 10f
     val st = remember { GSt() }
     fun speedAt(g: GRow, t: Float): Float {
@@ -690,6 +818,16 @@ fun GraphView(
     }
 
     Column(m) {
+        if (spatialMode) {
+            val target = comp.selected().firstOrNull { it.spatial && it.pr[PX].k.size >= 2 }
+            if (target != null) {
+                SpatialPathEditor(comp, target, c, Modifier.weight(1f).fillMaxWidth().background(Color(0xFF1E1E1E)))
+            } else {
+                Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF1E1E1E)), contentAlignment = Alignment.Center) {
+                    Text("Select a layer with Spatial enabled and at least two Position keyframes", color = DIM, fontSize = 10.sp)
+                }
+            }
+        } else {
         Canvas(
             Modifier.weight(1f).fillMaxWidth().padding(1.dp).onSizeChanged { hh = maxOf(it.height.toFloat(), 1f) }.then(
                 Modifier.cur(
@@ -839,10 +977,12 @@ fun GraphView(
                 drawText(tl, topLeft = Offset((size.width - tl.size.width) / 2f, size.height / 2f))
             }
         }
+        }
         Row(
             Modifier.fillMaxWidth().height(24.dp).background(CH).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            FlatBtn("Path", c, spatialMode) { spatialMode = !spatialMode }
             FlatBtn("Spatial", c, comp.selected().any { it.spatial }) {
                 comp.mark()
                 comp.selected().forEach { it.spatial = !it.spatial }

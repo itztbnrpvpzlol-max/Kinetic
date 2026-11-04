@@ -598,13 +598,28 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
 @Composable
 fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
     val scene = comp
-    var azText by remember(scene?.id) { mutableStateOf("%.1f".format(scene?.lightAzimuth ?: -35f)) }
-    var elText by remember(scene?.id) { mutableStateOf("%.1f".format(scene?.lightElevation ?: 55f)) }
-    var powerText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.lightIntensity ?: 0.85f)) }
+    var selectedId by remember(scene?.id) { mutableStateOf(scene?.lights?.firstOrNull()?.id ?: "") }
     var ambientText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.ambientLight ?: 0.3f)) }
     var shadowText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOpacity ?: 0.35f)) }
     var sxText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetX ?: 0.08f)) }
     var syText by remember(scene?.id) { mutableStateOf("%.2f".format(scene?.shadowOffsetY ?: -0.08f)) }
+    val selected = scene?.lights?.firstOrNull { it.id == selectedId }
+    var xText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.x ?: 0f)) }
+    var yText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.y ?: 0f)) }
+    var zText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.z ?: 1f)) }
+    var azText by remember(scene?.id, selectedId) { mutableStateOf("%.1f".format(selected?.azimuth ?: -35f)) }
+    var elText by remember(scene?.id, selectedId) { mutableStateOf("%.1f".format(selected?.elevation ?: 55f)) }
+    var powerText by remember(scene?.id, selectedId) { mutableStateOf("%.2f".format(selected?.intensity ?: 0.85f)) }
+
+    fun updateLight(change: (SceneLight) -> SceneLight) {
+        val index = scene?.lights?.indexOfFirst { it.id == selectedId } ?: -1
+        if (scene != null && index >= 0) {
+            scene.mark()
+            scene.lights[index] = change(scene.lights[index])
+            scene.invalidateFrames()
+        }
+    }
+
     Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text("3D LIGHTING", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (scene == null) {
@@ -618,26 +633,81 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                 }
                 Text("Affects 3D layers only", color = DIM, fontSize = 9.sp)
             }
-            Text("Directional light", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Azimuth °", color = DIM, fontSize = 9.sp)
-                Edt(azText, Modifier.width(64.dp), true) { v ->
-                    azText = v
-                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightAzimuth = it.coerceIn(-180f, 180f); scene.invalidateFrames() }
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                FlatBtn("+ Directional", c) {
+                    scene.mark()
+                    val light = SceneLight(name = "Directional ${scene.lights.count { it.type == 0 } + 1}", type = 0)
+                    scene.lights.add(light)
+                    selectedId = light.id
+                    scene.invalidateFrames()
                 }
-                Text("Elevation °", color = DIM, fontSize = 9.sp)
-                Edt(elText, Modifier.width(64.dp), true) { v ->
-                    elText = v
-                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightElevation = it.coerceIn(-89f, 89f); scene.invalidateFrames() }
+                FlatBtn("+ Point", c) {
+                    scene.mark()
+                    val light = SceneLight(name = "Point ${scene.lights.count { it.type == 1 } + 1}", type = 1, x = 0.5f, y = 0.5f, z = 1f)
+                    scene.lights.add(light)
+                    selectedId = light.id
+                    scene.invalidateFrames()
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Intensity", color = DIM, fontSize = 9.sp)
-                Edt(powerText, Modifier.width(64.dp), true) { v ->
-                    powerText = v
-                    v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.lightIntensity = it.coerceIn(0f, 1.5f); scene.invalidateFrames() }
+            if (scene.lights.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    scene.lights.forEach { light ->
+                        FlatBtn(light.name, c, selectedId == light.id) { selectedId = light.id }
+                    }
+                    FlatBtn("Remove", c, selected != null) {
+                        scene.mark()
+                        scene.lights.removeAll { it.id == selectedId }
+                        selectedId = scene.lights.firstOrNull()?.id ?: ""
+                        scene.invalidateFrames()
+                    }
                 }
-                Text("Ambient", color = DIM, fontSize = 9.sp)
+                if (selected != null) {
+                    Text("${if (selected.type == 0) "DIRECTIONAL" else "POINT"} LIGHT • ${selected.name}", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Intensity", color = DIM, fontSize = 9.sp)
+                        Edt(powerText, Modifier.width(64.dp), true) { v ->
+                            powerText = v
+                            v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(intensity = value.coerceIn(0f, 1.5f)) } }
+                        }
+                    }
+                    if (selected.type == 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Azimuth °", color = DIM, fontSize = 9.sp)
+                            Edt(azText, Modifier.width(64.dp), true) { v ->
+                                azText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(azimuth = value.coerceIn(-180f, 180f)) } }
+                            }
+                            Text("Elevation °", color = DIM, fontSize = 9.sp)
+                            Edt(elText, Modifier.width(64.dp), true) { v ->
+                                elText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(elevation = value.coerceIn(-89f, 89f)) } }
+                            }
+                        }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("X", color = DIM, fontSize = 9.sp)
+                            Edt(xText, Modifier.width(58.dp), true) { v ->
+                                xText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(x = value.coerceIn(-10f, 10f)) } }
+                            }
+                            Text("Y", color = DIM, fontSize = 9.sp)
+                            Edt(yText, Modifier.width(58.dp), true) { v ->
+                                yText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(y = value.coerceIn(-10f, 10f)) } }
+                            }
+                            Text("Z", color = DIM, fontSize = 9.sp)
+                            Edt(zText, Modifier.width(58.dp), true) { v ->
+                                zText = v
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(z = value.coerceIn(-10f, 10f)) } }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("No scene lights yet. Add a directional light or a point light. Existing projects keep using the legacy directional-light settings until you add a scene light.", color = DIM, fontSize = 9.sp)
+            }
+            Text("Ambient", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Edt(ambientText, Modifier.width(64.dp), true) { v ->
                     ambientText = v
                     v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.ambientLight = it.coerceIn(0f, 1f); scene.invalidateFrames() }
@@ -661,7 +731,7 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                     v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOffsetY = it.coerceIn(-1f, 1f); scene.invalidateFrames() }
                 }
             }
-            Text("The renderer uses a per-layer diffuse lighting term and a GPU alpha-silhouette shadow pass. Shadows are offset, hard-edged 2D projections; soft shadow maps, occlusion and light objects are not part of this pass.", color = DIM, fontSize = 9.sp)
+            Text("Point lights use distance-attenuated diffuse shading evaluated at each layer center. Directional lights use the layer's rotated normal. This is still a 2.5D renderer: no specular response, physical light falloff, occlusion or per-light shadow maps.", color = DIM, fontSize = 9.sp)
         }
     }
 }

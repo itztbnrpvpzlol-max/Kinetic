@@ -25,13 +25,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
 
-val PANELS = listOf("proj", "comp", "time", "info", "browser", "plugins")
+val PANELS = listOf("proj", "comp", "time", "info", "browser", "tracking", "plugins")
 
 fun panelTitle(id: String): String = when (id) {
     "proj" -> "Project"
     "comp" -> "Composition"
     "time" -> "Timeline"
     "browser" -> "Effects & Presets"
+    "tracking" -> "Tracker"
     "plugins" -> "Plugins"
     else -> "Info"
 }

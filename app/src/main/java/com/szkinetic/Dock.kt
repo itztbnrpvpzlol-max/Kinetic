@@ -56,6 +56,15 @@ class LSplit(val vert: Boolean, val kids: List<LNode>, ws: List<Float>) : LNode(
     val ws = mutableStateListOf<Float>().also { it.addAll(ws) }
 }
 
+fun compactTree(): LNode = LSplit(
+    true,
+    listOf(
+        LGroup(listOf("comp", "browser", "masks", "lighting"), 0),
+        LGroup(listOf("time"))
+    ),
+    listOf(1.15f, 1f)
+)
+
 fun defaultTree(): LNode = LSplit(
     true,
     listOf(

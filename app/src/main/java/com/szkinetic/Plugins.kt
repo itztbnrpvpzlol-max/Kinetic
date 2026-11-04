@@ -39,7 +39,7 @@ fun PluginsPanel(comp: Comp?, c: Cur, m: Modifier) {
     val presets = remember(ctx) { loadPresets(ctx).toMutableStateList() }
     val effects = remember { RenderEffects.all }
 
-    LaunchedEffect(Unit) { PluginRegistry.bootstrap(); refresh++ }
+    LaunchedEffect(Unit) { PluginRegistry.bootstrap(); loadKnplDirectory(ctx); refresh++ }
     val installedPlugins = remember(refresh) { PluginRegistry.all() }
 
     Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

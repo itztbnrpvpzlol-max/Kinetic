@@ -124,67 +124,94 @@ fun Home(
     onNew: () -> Unit,
     onFoot: () -> Unit,
     onImp: () -> Unit,
+    onPlugin: () -> Unit,
     onSet: () -> Unit,
     onDel: (Project) -> Unit,
     onDup: (Project) -> Unit,
     onExp: (Project) -> Unit
 ) {
     Column(Modifier.fillMaxSize().background(BG)) {
-        Row(Modifier.fillMaxWidth().height(28.dp).background(Color(0xFF1F1F1F)), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(18.dp).background(LAV, RoundedCornerShape(4.dp)), Alignment.Center) {
-                Text("Ki", color = Color(0xFF1A1A1A), fontWeight = FontWeight.Bold, fontSize = 9.sp)
+        Row(
+            Modifier.fillMaxWidth().height(64.dp).background(Color(0xFF171717)).padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(36.dp).background(LAV, RoundedCornerShape(10.dp)), Alignment.Center) {
+                Text("K", color = Color(0xFF171717), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
             }
-            Spacer(Modifier.width(6.dp))
-            Text("Kinetic", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Spacer(Modifier.width(6.dp))
-            Mn("File", c, "New project" to onNew, "New project from footage..." to onFoot, "Open project..." to onImp)
-            Mn("Edit", c, "Preferences..." to onSet)
+            Spacer(Modifier.width(10.dp))
+            Text("Kinetic", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 21.sp)
             Spacer(Modifier.weight(1f))
-            Box(Modifier.background(P3, RoundedCornerShape(3.dp)).cur(c) { onSet() }.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                Text("Preferences", color = Color.White, fontSize = 11.sp)
-            }
-            Spacer(Modifier.width(6.dp))
+            Mn("☰", c, "Settings" to onSet, "New Composition" to onNew)
         }
-        Row(Modifier.fillMaxWidth().weight(1f)) {
-            Pn("Project", true, c, {}, Modifier.width(300.dp).fillMaxHeight()) {
-                Row(Modifier.fillMaxWidth().background(HD).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    Text("Recent projects", color = GR, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                    Text("Modified", color = GR, fontSize = 10.sp)
-                }
-                val rs = rememberScrollState()
-                Column(Modifier.weight(1f).fillMaxWidth().vscr(c, rs)) {
-                    if (ps.isEmpty()) {
-                        Text("No projects yet.", color = GR, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
-                    }
-                    ps.forEach { p ->
-                        val cp = p.comps.firstOrNull()
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export Project" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Thumb(p)
-                            Column(Modifier.weight(1f)) {
-                                Text(p.name, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(if (cp == null) "Empty project" else "${cp.w} x ${cp.h}, ${cp.fps} fps, ${cp.dur.toInt()} s", color = GR, fontSize = 10.sp)
-                            }
-                            Text(ago(p.mod), color = GR, fontSize = 10.sp)
-                        }
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF2A2A2A)))
+
+        val scroll = rememberScrollState()
+        Column(
+            Modifier.fillMaxSize().vscr(c, scroll).padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                Modifier.fillMaxWidth().heightIn(min = 150.dp).background(Color(0xFF292B3B), RoundedCornerShape(22.dp))
+                    .border(1.dp, Color(0xFF41445B), RoundedCornerShape(22.dp)).cur(c) { onNew() }
+                    .padding(horizontal = 24.dp, vertical = 22.dp)
+            ) {
+                Column(Modifier.align(Alignment.CenterStart), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("New Composition", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("Start a fresh motion design project", color = Color(0xFFB8BCD0), fontSize = 13.sp)
+                    Spacer(Modifier.height(2.dp))
+                    Box(Modifier.background(AC, RoundedCornerShape(9.dp)).padding(horizontal = 16.dp, vertical = 9.dp)) {
+                        Text("Create composition  →", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     }
                 }
             }
-            Pn("Start", false, c, {}, Modifier.weight(1f).fillMaxHeight()) {
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        Crd("New Project", 0, c) { onNew() }
-                        Crd("New Project\nFrom Footage", 1, c) { onFoot() }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier.weight(1f).height(54.dp).background(AC, RoundedCornerShape(12.dp))
+                        .cur(c) { onImp() }, Alignment.Center
+                ) {
+                    Text("Import Project File", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Box(
+                    Modifier.weight(1f).height(54.dp).background(Color(0xFF2476C8), RoundedCornerShape(12.dp))
+                        .cur(c) { onPlugin() }, Alignment.Center
+                ) {
+                    Text("Install Plugin", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Your Projects", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text("${ps.size} projects", color = GR, fontSize = 11.sp)
+            }
+            if (ps.isEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().background(Color(0xFF242424), RoundedCornerShape(14.dp)).padding(22.dp),
+                    Alignment.Center
+                ) {
+                    Text("Your projects will appear here.", color = GR, fontSize = 13.sp)
+                }
+            } else {
+                ps.forEach { p ->
+                    val cp = p.comps.firstOrNull()
+                    Row(
+                        Modifier.fillMaxWidth().background(Color(0xFF252525), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color(0xFF353535), RoundedCornerShape(12.dp))
+                            .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export Project" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(Modifier.background(Color.Black, RoundedCornerShape(7.dp)).padding(5.dp)) { Thumb(p) }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(p.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                if (cp == null) "Empty project" else "${cp.w} × ${cp.h}  •  ${cp.fps} fps  •  ${cp.dur.toInt()} s",
+                                color = GR, fontSize = 11.sp
+                            )
+                        }
+                        Text(ago(p.mod), color = GR, fontSize = 10.sp)
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Btn("Open project file", c) { onImp() }
                 }
             }
         }

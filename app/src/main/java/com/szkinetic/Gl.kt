@@ -130,7 +130,7 @@ void main(){
 var FrameMs by mutableStateOf(0f)
 
 private const val BLIT_VS = "attribute vec2 p; varying vec2 uv; void main(){ uv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }"
-private const val BLIT_FS = "precision mediump float; varying vec2 uv; uniform sampler2D image; void main(){ gl_FragColor=texture2D(image,vec2(uv.x,1.0-uv.y)); }"
+private const val BLIT_FS = "precision mediump float; varying vec2 uv; uniform sampler2D image; void main(){ gl_FragColor=texture2D(image,uv); }"
 
 class Frame(val d: FloatArray, val b: Array<Bitmap?>)
 

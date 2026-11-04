@@ -75,7 +75,9 @@ fun PluginsPanel(comp: Comp?, c: Cur, m: Modifier) {
                 Text("PERMISSIONS  •  " + entry.grantedPermissions.joinToString { it.id }, color = DIM, fontSize = 8.sp)
                 entry.actions.forEach { action ->
                     FlatBtn(action.title, c) {
-                        try {
+                        if (action.permission !in entry.grantedPermissions) {
+                            Toast.makeText(ctx, "Permission not granted: ${action.permission.id}", Toast.LENGTH_LONG).show()
+                        } else try {
                             val context = PluginRegistry.context(comp, entry.grantedPermissions)
                             action.execute(context)
                             Toast.makeText(ctx, "${action.title} complete", Toast.LENGTH_SHORT).show()

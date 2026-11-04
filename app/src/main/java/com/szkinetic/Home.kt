@@ -161,7 +161,7 @@ fun Home(
                         val cp = p.comps.firstOrNull()
                         Row(
                             Modifier.fillMaxWidth()
-                                .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
+                                .cur(c, rc = mnu(c, "Open" to { onOpen(p) }, "Duplicate" to { onDup(p) }, "Export Project" to { onExp(p) }, "Delete" to { onDel(p) })) { onOpen(p) }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)

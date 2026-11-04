@@ -32,6 +32,7 @@ uniform sampler2D tx;
 uniform float lf;
 uniform float sp;
 uniform float so;
+uniform float shSoft;
 void main(){
     vec4 src;
     if(u>0.5){
@@ -105,7 +106,21 @@ void main(){
     }
     }
     if(sp>0.5){
-        gl_FragColor=vec4(0.0,0.0,0.0,src.a*col.a*so);
+        float shadowAlpha = src.a;
+        if(u>0.5 && shSoft>0.0001){
+            vec2 px = vec2(shSoft);
+            float a0 = texture2D(tx,vec2(uv.x-px.x,1.0-(uv.y-px.y))).a;
+            float a1 = texture2D(tx,vec2(uv.x,1.0-(uv.y-px.y))).a;
+            float a2 = texture2D(tx,vec2(uv.x+px.x,1.0-(uv.y-px.y))).a;
+            float b0 = texture2D(tx,vec2(uv.x-px.x,1.0-uv.y)).a;
+            float b1 = src.a;
+            float b2 = texture2D(tx,vec2(uv.x+px.x,1.0-uv.y)).a;
+            float c0 = texture2D(tx,vec2(uv.x-px.x,1.0-(uv.y+px.y))).a;
+            float c1 = texture2D(tx,vec2(uv.x,1.0-(uv.y+px.y))).a;
+            float c2 = texture2D(tx,vec2(uv.x+px.x,1.0-(uv.y+px.y))).a;
+            shadowAlpha = (a0+2.0*a1+a2+2.0*b0+4.0*b1+2.0*b2+c0+2.0*c1+c2)/16.0;
+        }
+        gl_FragColor=vec4(0.0,0.0,0.0,shadowAlpha*col.a*so);
     }else{
         gl_FragColor=vec4(clamp(rgb*lf,0.0,1.0)*col.a,src.a*col.a);
     }
@@ -196,6 +211,7 @@ class Rnd : GLSurfaceView.Renderer {
     private var uLight = 0
     private var uShadowPass = 0
     private var uShadowOpacity = 0
+    private var uShadowSoftness = 0
     private var cm = -1
     private val vb = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
         put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
@@ -226,6 +242,7 @@ class Rnd : GLSurfaceView.Renderer {
             uLight = GLES20.glGetUniformLocation(pg, "lf")
             uShadowPass = GLES20.glGetUniformLocation(pg, "sp")
             uShadowOpacity = GLES20.glGetUniformLocation(pg, "so")
+            uShadowSoftness = GLES20.glGetUniformLocation(pg, "shSoft")
             GLES20.glUseProgram(pg)
             GLES20.glUniform1i(uX, 0)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -253,6 +270,7 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glUniform4f(uFxVals1, d[o + 26], d[o + 27], d[o + 28], d[o + 29])
         GLES20.glUniform1f(uLight, d[o + 30].coerceIn(0f, 1.8f))
         GLES20.glUniform1f(uShadowOpacity, d[o + 31].coerceIn(0f, 1f))
+        GLES20.glUniform1f(uShadowSoftness, d[o + 34].coerceIn(0f, 0.04f))
         if (bm != null) {
             if (bm.isRecycled) return
             var id = tx[bm]

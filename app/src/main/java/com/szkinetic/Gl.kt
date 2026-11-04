@@ -441,7 +441,7 @@ class Rnd : GLSurfaceView.Renderer {
         if (ex <= sx || ey <= sy) return
         val fr = f
         val n = fr.d.size / STR
-        if (ensureOffscreen(vw, vh)) {
+        if (ensureOffscreen(bw, bh)) {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
             GLES20.glViewport(0, 0, frameWidth, frameHeight)
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST)

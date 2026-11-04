@@ -863,12 +863,39 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         var out = FloatArray(maxOf(n, 4) * STR)
         var bitmaps = arrayOfNulls<Bitmap>(maxOf(n, 4))
         var count = 0
-        fun append(src: FloatArray, offset: Int, bm: Bitmap?) {
+        fun ensureCapacity() {
             if (count >= bitmaps.size) {
                 out = out.copyOf(out.size * 2)
                 bitmaps = bitmaps.copyOf(bitmaps.size * 2)
             }
+        }
+        fun append(src: FloatArray, offset: Int, bm: Bitmap?) {
+            ensureCapacity()
             System.arraycopy(src, offset, out, count * STR, STR)
+            bitmaps[count] = bm
+            count++
+        }
+        fun appendNested(data: FloatArray, offset: Int, fit: Aff, parent: Aff, opacity: Float, bm: Bitmap?) {
+            ensureCapacity()
+            val childWorld = Aff(
+                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset + 4], data[offset + 5]
+            )
+            val m = parent.mul(fit.mul(childWorld))
+            val o = count * STR
+            out[o] = m.a
+            out[o + 1] = m.b
+            out[o + 2] = m.c
+            out[o + 3] = m.d
+            out[o + 4] = m.tx
+            out[o + 5] = m.ty
+            out[o + 6] = data[offset + 6]
+            out[o + 7] = data[offset + 7]
+            out[o + 8] = data[offset + 8]
+            out[o + 9] = data[offset + 9] * opacity
+            out[o + 10] = data[offset + 10]
+            out[o + 11] = data[offset + 11]
+            out[o + 12] = data[offset + 12]
             bitmaps[count] = bm
             count++
         }
@@ -894,27 +921,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                 val ratio = asp / (nested.w.toFloat() / nested.h)
                 val fit = Aff(ratio, 0f, 0f, 1f, 0f, 0f)
                 for (j in child.b.indices) {
-                    val o = j * STR
-                    val childWorld = Aff(
-                        child.d[o], child.d[o + 1], child.d[o + 2], child.d[o + 3],
-                        child.d[o + 4], child.d[o + 5]
-                    )
-                    val m = parentWorld.mul(fit.mul(childWorld))
-                    val item = FloatArray(STR)
-                    item[0] = m.a
-                    item[1] = m.b
-                    item[2] = m.c
-                    item[3] = m.d
-                    item[4] = m.tx
-                    item[5] = m.ty
-                    item[6] = child.d[o + 6]
-                    item[7] = child.d[o + 7]
-                    item[8] = child.d[o + 8]
-                    item[9] = child.d[o + 9] * op
-                    item[10] = child.d[o + 10]
-                    item[11] = child.d[o + 11]
-                    item[12] = child.d[o + 12]
-                    append(item, 0, child.b[j])
+                    appendNested(child.d, j * STR, fit, parentWorld, op, child.b[j])
                 }
                 continue
             }

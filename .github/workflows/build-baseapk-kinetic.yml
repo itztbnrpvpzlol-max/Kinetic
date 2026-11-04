@@ -53,6 +53,21 @@ jobs:
           for attr in ('isSplitRequired', 'requiredSplitTypes', 'splitTypes'):
               root.attrib.pop(ns + attr, None)
           app = root.find('application')
+          # This APK is being rebuilt as an owner-authorized standalone development build.
+          # Remove the Play Integrity/PairIP licensing bootstrap and its manifest entries.
+          app.attrib.pop(ns + 'name', None)
+          for tag in ('activity', 'provider', 'service', 'receiver'):
+              for component in list(app.findall(tag)):
+                  name = component.get(ns + 'name', '')
+                  if name.startswith('com.pairip.'):
+                      app.remove(component)
+          for item in list(app.findall('meta-data')):
+              name = item.get(ns + 'name', '')
+              if name.startswith('com.android.vending.splits') or name == 'com.android.vending.derived.apk.id':
+                  app.remove(item)
+          for permission in list(root.findall('uses-permission')):
+              if permission.get(ns + 'name') == 'com.android.vending.CHECK_LICENSE':
+                  root.remove(permission)
           for activity in list(app.findall('activity')):
               if activity.get(ns + 'name') == 'com.angkin.keyflow.MainActivity':
                   for filt in list(activity.findall('intent-filter')):

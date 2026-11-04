@@ -35,7 +35,7 @@ jobs:
         id: apk
         shell: bash
         env:
-          APK_PATH_INPUT: ${{ inputs.apk_path }}
+          APK_PATH_INPUT: ${{ inputs.input_path }}
         run: |
           set -euo pipefail
           input_path="${APK_PATH_INPUT}"

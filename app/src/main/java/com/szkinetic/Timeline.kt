@@ -839,6 +839,26 @@ fun GraphView(
                     "Hold" to { comp.easeKeys(2) }
                 )
             }
+            Dd("Motion", c) {
+                listOf(
+                    "No Expression" to {
+                        comp.mark()
+                        rows.forEach { it.p.setExpression(0) }
+                    },
+                    "Wiggle" to {
+                        comp.mark()
+                        rows.forEach { it.p.setExpression(1, 3f, 0.08f, 5f) }
+                    },
+                    "Bounce" to {
+                        comp.mark()
+                        rows.forEach { it.p.setExpression(2, 2.5f, 0.35f, 5f) }
+                    },
+                    "Elastic" to {
+                        comp.mark()
+                        rows.forEach { it.p.setExpression(3, 3f, 0.22f, 5f) }
+                    }
+                )
+            }
             FlatBtn("Add key", c) {
                 comp.mark()
                 val e = comp.eps()

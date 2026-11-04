@@ -408,6 +408,16 @@ fun Root(st: Settings, c: Cur) {
             }
         }
     }
+    val pluginPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
+        if (u != null) {
+            try {
+                val name = installKnpl(ctx, u)
+                Toast.makeText(ctx, "Installed plugin: $name", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(ctx, e.message ?: "Could not install KNPL plugin", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     val exp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u: Uri? ->
         val p = expP
         if (u != null && p != null) {
@@ -457,6 +467,7 @@ fun Root(st: Settings, c: Cur) {
                     },
                     onFoot = { foot.launch(arrayOf("video/*", "audio/*", "image/*")) },
                     onImp = { imp.launch(arrayOf("*/*")) },
+                    onPlugin = { pluginPicker.launch(arrayOf("*/*")) },
                     onSet = { showSet = true },
                     onDel = { p ->
                         scope.launch {

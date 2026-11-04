@@ -506,6 +506,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var lib: List<Media> = emptyList()
     var proj: Project? = null
     var onOpenComp: ((String) -> Unit)? = null
+    private var renderRevision = 0L
+    private val pausedFrames = LinkedHashMap<Int, Pair<Long, Frame>>(4, 0.75f, true)
     var playing by mutableStateOf(false)
     private var t0 by mutableStateOf(0f)
 
@@ -521,6 +523,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var sel by mutableStateOf(0)
 
     fun mark() {
+        renderRevision++
+        pausedFrames.clear()
         proj?.mark()
     }
 
@@ -1037,7 +1041,25 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         return m
     }
 
-    fun frame(): Frame = frameAt(time, 0, emptySet(), playing)
+    fun frame(): Frame {
+        val currentTime = time
+        if (playing || layers.any { it.preCompId.isNotEmpty() }) {
+            return frameAt(currentTime, 0, emptySet(), playing)
+        }
+        val key = java.lang.Float.floatToIntBits(currentTime)
+        val cached = pausedFrames[key]
+        if (cached != null && cached.first == renderRevision) return cached.second
+        val rendered = frameAt(currentTime, 0, emptySet(), false)
+        pausedFrames[key] = renderRevision to rendered
+        while (pausedFrames.size > 4) {
+            val oldest = pausedFrames.entries.iterator()
+            if (oldest.hasNext()) {
+                oldest.next()
+                oldest.remove()
+            } else break
+        }
+        return rendered
+    }
 
     private fun makePathBitmap(points: List<PathPoint>, closed: Boolean, color: Long): Bitmap {
         val bmp = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888)

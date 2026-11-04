@@ -257,6 +257,10 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     "New composition..." to { showNew = true },
                     "New shape layer" to { comp?.add(); Unit },
                     "New null object" to { comp?.addNull(); Unit },
+                    "Back to Parent" to { backToParent() }
+                )
+                Mn(
+                    "Layer", c,
                     "Pre-compose selected layers" to {
                         val nm = "Pre-comp ${p.comps.size + 1}"
                         val ok = comp?.precomposeSelected(nm) == true
@@ -268,10 +272,6 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                             note("Cannot pre-compose: check the selected layers and their parenting")
                         }
                     },
-                    "Back to Parent" to { backToParent() }
-                )
-                Mn(
-                    "Layer", c,
                     "Duplicate" to { comp?.dupSel(); Unit },
                     "Split at playhead" to { comp?.split(comp.sel); Unit },
                     "Parent to new null" to { comp?.nullParent(comp.sel); Unit },

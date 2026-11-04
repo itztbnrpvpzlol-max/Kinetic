@@ -422,3 +422,76 @@ fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
     }
 }
+
+
+// ---------------------------------------------------------------- Effects & Presets browser (catalog shell; effect implementations are intentionally deferred)
+@Composable
+fun EffectsBrowserPanel(c: Cur, m: Modifier) {
+    var query by remember { mutableStateOf("") }
+    val groups = listOf(
+        "Animation Presets",
+        "Blur & Sharpen",
+        "Color Correction",
+        "Distortion",
+        "Generate",
+        "Keying",
+        "Matte & Mask",
+        "Perspective",
+        "Simulation",
+        "Stylize",
+        "Time"
+    )
+    val visible = groups.filter { it.contains(query.trim(), ignoreCase = true) }
+    Column(m.background(PB).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().height(30.dp).background(Color(0xFF171717), RoundedCornerShape(3.dp))
+                .border(1.dp, EDG, RoundedCornerShape(3.dp)).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("⌕", color = DIM, fontSize = 15.sp)
+            Spacer(Modifier.width(6.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                singleLine = true,
+                textStyle = TextStyle(color = TXT, fontSize = 11.sp),
+                cursorBrush = SolidColor(AC),
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxSize(), Alignment.CenterStart) {
+                        if (query.isEmpty()) Text("Search effects & presets", color = DIM, fontSize = 11.sp)
+                        inner()
+                    }
+                }
+            )
+            if (query.isNotEmpty()) {
+                Text("×", color = DIM, fontSize = 15.sp, modifier = Modifier.cur(c) { query = "" }.padding(horizontal = 3.dp))
+            }
+        }
+        Text("BROWSE CATEGORIES", color = DIM, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.weight(1f).fillMaxWidth().then(Modifier.vscr(c, rememberScrollState()))) {
+            if (visible.isEmpty()) {
+                Text("No matching categories", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
+            } else {
+                visible.forEach { category ->
+                    Row(
+                        Modifier.fillMaxWidth().height(29.dp).border(0.5.dp, Color(0xFF343434), RoundedCornerShape(2.dp))
+                            .background(Color(0xFF292929)).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("▸", color = DIM, fontSize = 10.sp)
+                        Spacer(Modifier.width(7.dp))
+                        Text(category, color = TXT, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp)) {
+            Text(
+                "Effect tools are being developed separately. This panel is the browser shell for now.",
+                color = DIM,
+                fontSize = 9.sp
+            )
+        }
+    }
+}

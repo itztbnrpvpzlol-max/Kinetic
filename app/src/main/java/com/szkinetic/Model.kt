@@ -705,7 +705,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
 
 // Frame item stride: m(a,b,c,d) t(x,y) rgb alpha e(x,y) kind(0 draw, 1 adjustment)
 const val MAX_LAYER_EFFECTS = 8
-const val STR = 18 + MAX_LAYER_EFFECTS * 2
+const val STR = 19 + MAX_LAYER_EFFECTS * 2
 
 class PRef(val id: String, val name: String, val p: Prop)
 class KSnap(val p: Prop, val orig: List<Kf>)
@@ -734,7 +734,8 @@ data class SceneLight(
     val zAnim: Prop = Prop(z),
     val azimuthAnim: Prop = Prop(azimuth),
     val elevationAnim: Prop = Prop(elevation),
-    val intensityAnim: Prop = Prop(intensity)
+    val intensityAnim: Prop = Prop(intensity),
+    val range: Float = 4f
 )
 
 class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
@@ -777,6 +778,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     var shadowOpacity by mutableStateOf(0.35f)
     var shadowOffsetX by mutableStateOf(0.08f)
     var shadowOffsetY by mutableStateOf(-0.08f)
+    var shadowSoftness by mutableStateOf(0.012f)
 
     fun mark() {
         renderRevision++
@@ -1486,7 +1488,10 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                             lx = dx / distance
                             ly = dy / distance
                             lz = dz / distance
-                            strength = light.intensityAnim.get(t) / (1f + distanceSq * 1.2f)
+                            val range = light.range.coerceIn(0.1f, 20f)
+                            val rangeFade = (1f - distance / range).coerceIn(0f, 1f)
+                            val smoothRange = rangeFade * rangeFade * (3f - 2f * rangeFade)
+                            strength = light.intensityAnim.get(t) * smoothRange / (1f + distanceSq)
                         }
                         illumination += strength * maxOf(0f, nx * lx + ny * ly + nz * lz)
                     }
@@ -1495,9 +1500,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                 item[31] = shadowOpacity.coerceIn(0f, 1f)
                 item[32] = shadowOffsetX.coerceIn(-1f, 1f)
                 item[33] = shadowOffsetY.coerceIn(-1f, 1f)
+                item[34] = shadowSoftness.coerceIn(0f, 0.04f)
             } else {
                 item[30] = 1f
                 item[31] = 0f
+                item[34] = 0f
             }
             append(item, 0, bm)
         }
@@ -1554,13 +1561,14 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         o.put("shadowOpacity", shadowOpacity.toDouble())
         o.put("shadowX", shadowOffsetX.toDouble())
         o.put("shadowY", shadowOffsetY.toDouble())
+        o.put("shadowSoftness", shadowSoftness.toDouble())
         val la = JSONArray()
         for (light in lights) {
             la.put(JSONObject().put("id", light.id).put("name", light.name).put("type", light.type)
                 .put("x", light.x.toDouble()).put("y", light.y.toDouble()).put("z", light.z.toDouble())
                 .put("az", light.azimuth.toDouble()).put("el", light.elevation.toDouble()).put("power", light.intensity.toDouble())
                 .put("ax", light.xAnim.js()).put("ay", light.yAnim.js()).put("azp", light.zAnim.js())
-                .put("aaz", light.azimuthAnim.js()).put("ael", light.elevationAnim.js()).put("ap", light.intensityAnim.js()))
+                .put("aaz", light.azimuthAnim.js()).put("ael", light.elevationAnim.js()).put("ap", light.intensityAnim.js()).put("range", light.range.toDouble()))
         }
         o.put("lights", la)
         val a = JSONArray()
@@ -1604,7 +1612,8 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
                     light.optDouble("z", 1.0).toFloat().coerceIn(-10f, 10f),
                     light.optDouble("az", -35.0).toFloat().coerceIn(-180f, 180f),
                     light.optDouble("el", 55.0).toFloat().coerceIn(-89f, 89f),
-                    light.optDouble("power", 0.85).toFloat().coerceIn(0f, 1.5f)
+                    light.optDouble("power", 0.85).toFloat().coerceIn(0f, 1.5f),
+                    range = light.optDouble("range", 4.0).toFloat().coerceIn(0.1f, 20f)
                 )
                 light.optJSONObject("ax")?.let { sceneLight.xAnim.load(it) }
                 light.optJSONObject("ay")?.let { sceneLight.yAnim.load(it) }
@@ -1617,6 +1626,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
             c.shadowOpacity = o.optDouble("shadowOpacity", 0.35).toFloat().coerceIn(0f, 1f)
             c.shadowOffsetX = o.optDouble("shadowX", 0.08).toFloat().coerceIn(-1f, 1f)
             c.shadowOffsetY = o.optDouble("shadowY", -0.08).toFloat().coerceIn(-1f, 1f)
+            c.shadowSoftness = o.optDouble("shadowSoftness", 0.012).toFloat().coerceIn(0f, 0.04f)
             val ma = o.optJSONArray("mk")
             if (ma != null) for (i in 0 until ma.length()) {
                 val marker = ma.getJSONObject(i)

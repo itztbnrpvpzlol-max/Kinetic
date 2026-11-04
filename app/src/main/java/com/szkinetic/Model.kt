@@ -12,7 +12,9 @@ import java.io.File
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
+import kotlin.math.PI
 
 // ---- keyframes -------------------------------------------------------------
 // ip: 0 linear, 1 bezier, 2 hold.  ii/isp = incoming influence (0..1) and speed (units/sec),
@@ -102,7 +104,48 @@ class Prop(val def: Float) {
         k.addAll(keep)
     }
 
-    fun get(t: Float): Float = if (k.isEmpty()) sv else ev(k, t)
+    // Procedural animation modifier: 0 none, 1 wiggle, 2 bounce, 3 elastic.
+    // Values are stored with the property so expressions survive save/load and undo.
+    var expression by mutableIntStateOf(0)
+    var expressionFrequency by mutableFloatStateOf(3f)
+    var expressionAmount by mutableFloatStateOf(0.08f)
+    var expressionDecay by mutableFloatStateOf(5f)
+
+    fun get(t: Float): Float {
+        val base = if (k.isEmpty()) sv else ev(k, t)
+        if (expression == 0 || !t.isFinite()) return base
+        val frequency = expressionFrequency.coerceIn(0.1f, 30f)
+        val amount = expressionAmount.coerceIn(0f, 2f)
+        val scale = maxOf(0.1f, abs(base), if (k.size > 1) abs(k.last().v - k.first().v) else 0f)
+        if (expression == 1) {
+            val phase = t * frequency * (2.0 * PI).toFloat()
+            val wave = sin(phase) * 0.62f + sin(phase * 2.13f + 1.7f) * 0.25f + sin(phase * 3.71f + 0.4f) * 0.13f
+            return base + wave * scale * amount
+        }
+        if (k.size < 2 || t <= k.first().t || t >= k.last().t) return base
+        var index = 0
+        while (index < k.lastIndex - 1 && k[index + 1].t < t) index++
+        val a = k[index]
+        val b = k[index + 1]
+        val dt = b.t - a.t
+        if (dt <= 1e-6f) return base
+        val u = ((t - a.t) / dt).coerceIn(0f, 1f)
+        val delta = b.v - a.v
+        val decay = exp(-expressionDecay.coerceIn(0.1f, 20f) * u)
+        val offset = when (expression) {
+            2 -> abs(sin(PI.toFloat() * frequency * u)) * decay * delta * amount
+            3 -> sin((2.0 * PI).toFloat() * frequency * u) * decay * delta * amount
+            else -> 0f
+        }
+        return base + offset
+    }
+
+    fun setExpression(type: Int, frequency: Float = expressionFrequency, amount: Float = expressionAmount, decay: Float = expressionDecay) {
+        expression = type.coerceIn(0, 3)
+        expressionFrequency = frequency.coerceIn(0.1f, 30f)
+        expressionAmount = amount.coerceIn(0f, 2f)
+        expressionDecay = decay.coerceIn(0.1f, 20f)
+    }
 
     fun idx(t: Float, e: Float): Int {
         for (i in 0 until k.size) if (abs(k[i].t - t) <= e) return i
@@ -186,11 +229,19 @@ class Prop(val def: Float) {
         sv = o.sv
         k.clear()
         k.addAll(o.k)
+        expression = o.expression
+        expressionFrequency = o.expressionFrequency
+        expressionAmount = o.expressionAmount
+        expressionDecay = o.expressionDecay
     }
 
     fun js(): JSONObject {
         val o = JSONObject()
         o.put("v", sv.toDouble())
+        o.put("ex", expression)
+        o.put("ef", expressionFrequency.toDouble())
+        o.put("ea", expressionAmount.toDouble())
+        o.put("ed", expressionDecay.toDouble())
         val a = JSONArray()
         for (f in k) {
             a.put(
@@ -204,6 +255,10 @@ class Prop(val def: Float) {
 
     fun load(o: JSONObject) {
         sv = o.optDouble("v", def.toDouble()).toFloat()
+        expression = o.optInt("ex", 0).coerceIn(0, 3)
+        expressionFrequency = o.optDouble("ef", 3.0).toFloat().coerceIn(0.1f, 30f)
+        expressionAmount = o.optDouble("ea", 0.08).toFloat().coerceIn(0f, 2f)
+        expressionDecay = o.optDouble("ed", 5.0).toFloat().coerceIn(0.1f, 20f)
         k.clear()
         val a = o.optJSONArray("k") ?: return
         for (i in 0 until a.length()) {

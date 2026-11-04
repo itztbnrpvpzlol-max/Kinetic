@@ -1,0 +1,133 @@
+name: Decompile APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_path:
+        description: "Path to the APK inside the repository"
+        required: true
+        default: "input/app.apk"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: decompile-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  decompile:
+    name: Decompile Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate APK input
+        id: apk
+        shell: bash
+        env:
+          APK_PATH_INPUT: ${{ inputs.apk_path }}
+        run: |
+          set -euo pipefail
+          apk_path="${APK_PATH_INPUT}"
+          if [[ -z "$apk_path" ]]; then
+            echo "::error::Enter the path to an APK in the repository."
+            exit 1
+          fi
+          if [[ "$apk_path" != *.apk && "$apk_path" != *.APK ]]; then
+            echo "::error::The input path must end in .apk"
+            exit 1
+          fi
+          if [[ "$apk_path" = /* || "$apk_path" == *".."* ]]; then
+            echo "::error::Use a repository-relative path without '..'."
+            exit 1
+          fi
+          if [[ ! -f "$apk_path" ]]; then
+            echo "::error file=$apk_path::APK not found. Upload it to the repository first."
+            exit 1
+          fi
+          mkdir -p decompiled
+          echo "path=$apk_path" >> "$GITHUB_OUTPUT"
+          echo "APK: $apk_path" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$apk_path" | tee decompiled/apk-sha256.txt
+
+      - name: Download JADX
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://github.com/skylot/jadx/releases/download/v1.5.2/jadx-1.5.2.zip" \
+            --output /tmp/jadx.zip
+          mkdir -p /opt/jadx
+          unzip -q /tmp/jadx.zip -d /opt/jadx
+          chmod +x /opt/jadx/bin/jadx
+
+      - name: Decompile code with JADX
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          /opt/jadx/bin/jadx \
+            --show-bad-code \
+            --deobf \
+            -d decompiled/jadx \
+            "$APK_PATH"
+
+      - name: Decode resources and smali with Apktool
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar" \
+            --output /tmp/apktool.jar
+          java -jar /tmp/apktool.jar d \
+            --force \
+            --output decompiled/apktool \
+            "$APK_PATH"
+
+      - name: Write output guide
+        run: |
+          cat > decompiled/README.txt <<'EOF'
+          Kinetic APK decompilation results
+
+          jadx/
+            Decompiled Java-like source reconstructed from DEX bytecode.
+            This is not the original Kotlin source and may not rebuild as-is.
+
+          apktool/
+            Decoded AndroidManifest.xml, resources, assets (when present),
+            and smali disassembly.
+
+          apk-sha256.txt
+            SHA-256 checksum of the input APK.
+
+          This is static analysis only. The APK was not installed or executed.
+          Only decompile APKs you own or are authorized to analyze.
+          EOF
+          {
+            echo "## Decompilation complete"
+            echo ""
+            echo "- Input: \"${{ steps.apk.outputs.path }}\""
+            echo "- JADX output: `decompiled/jadx/`"
+            echo "- Apktool output: `decompiled/apktool/`"
+            echo ""
+            echo "Download the **apk-decompiled-output** artifact below this workflow run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload decompiled output
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-decompiled-output
+          path: decompiled/
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 14

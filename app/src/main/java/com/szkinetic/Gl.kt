@@ -178,7 +178,10 @@ class Rnd : GLSurfaceView.Renderer {
     private var uTm = 0
     private var uU = 0
     private var uX = 0
-    private var uFx = 0
+    private var uFxIds0 = 0
+    private var uFxIds1 = 0
+    private var uFxVals0 = 0
+    private var uFxVals1 = 0
     private var cm = -1
     private val vb = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
         put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
@@ -201,7 +204,10 @@ class Rnd : GLSurfaceView.Renderer {
             uTm = GLES20.glGetUniformLocation(pg, "tm")
             uU = GLES20.glGetUniformLocation(pg, "u")
             uX = GLES20.glGetUniformLocation(pg, "tx")
-            uFx = GLES20.glGetUniformLocation(pg, "fx")
+            uFxIds0 = GLES20.glGetUniformLocation(pg, "fxIds0")
+            uFxIds1 = GLES20.glGetUniformLocation(pg, "fxIds1")
+            uFxVals0 = GLES20.glGetUniformLocation(pg, "fxVals0")
+            uFxVals1 = GLES20.glGetUniformLocation(pg, "fxVals1")
             GLES20.glUseProgram(pg)
             GLES20.glUniform1i(uX, 0)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -223,7 +229,10 @@ class Rnd : GLSurfaceView.Renderer {
         GLES20.glUniform2f(uT, d[o + 4], d[o + 5])
         GLES20.glUniform4f(uC, d[o + 6], d[o + 7], d[o + 8], d[o + 9])
         GLES20.glUniform2f(uE, d[o + 10], d[o + 11])
-        GLES20.glUniform2f(uFx, d[o + 12], d[o + 13])
+        GLES20.glUniform4f(uFxIds0, d[o + 14], d[o + 15], d[o + 16], d[o + 17])
+        GLES20.glUniform4f(uFxIds1, d[o + 18], d[o + 19], d[o + 20], d[o + 21])
+        GLES20.glUniform4f(uFxVals0, d[o + 22], d[o + 23], d[o + 24], d[o + 25])
+        GLES20.glUniform4f(uFxVals1, d[o + 26], d[o + 27], d[o + 28], d[o + 29])
         if (bm != null) {
             if (bm.isRecycled) return
             var id = tx[bm]

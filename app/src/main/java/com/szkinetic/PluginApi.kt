@@ -73,16 +73,25 @@ interface KineticPlugin {
     fun onUnload() {}
 }
 
+data class CompositionInfo(
+    val name: String,
+    val width: Int,
+    val height: Int,
+    val frameRate: Int,
+    val durationSeconds: Float,
+    val layerCount: Int
+)
+
 class PluginContext internal constructor(
     private val compositionProvider: () -> Comp?,
     private val granted: Set<PluginPermission>
 ) {
-    val activeComposition: Comp?
+    val activeComposition: CompositionInfo?
         get() {
             requirePermission(PluginPermission.PROJECT_READ)
-            return compositionProvider()
+            val comp = compositionProvider() ?: return null
+            return CompositionInfo(comp.name, comp.w, comp.h, comp.fps, comp.dur, comp.layers.size)
         }
-
     fun requirePermission(permission: PluginPermission) {
         check(permission in granted) { "Plugin permission not granted: ${permission.id}" }
     }

@@ -398,7 +398,7 @@ class Layer(n: String, c: Long, x: Float, y: Float, s: Float, r: Float) {
                 if (pt.length() >= 2) l.pathPoints.add(PathPoint(pt.getDouble(0).toFloat(), pt.getDouble(1).toFloat()))
             }
             l.pathClosed = o.optBoolean("pathClosed", true)
-            l.effectId = o.optInt("fx", 0).coerceIn(0, 12)
+            l.effectId = o.optInt("fx", 0).coerceIn(0, 16)
             l.effectAmount = o.optDouble("fa", 0.5).toFloat().coerceIn(0f, 1f)
             val pa = o.optJSONArray("pr")
             if (pa != null) {
@@ -552,7 +552,7 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
     }
 
     fun applyEffect(effectId: Int) {
-        if (effectId !in 1..12) return
+        if (effectId !in 1..16) return
         val targets = selected().filter { it.role != 1 && it.role != 2 }
         if (targets.isEmpty()) return
         mark()

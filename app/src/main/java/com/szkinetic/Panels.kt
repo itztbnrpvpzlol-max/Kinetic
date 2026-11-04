@@ -588,3 +588,108 @@ fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
     }
 }
+
+
+// ---------------------------------------------------------------- Motion tracking & stabilization
+@Composable
+fun TrackingPanel(comp: Comp?, c: Cur, m: Modifier) {
+    val ctx = LocalContext.current
+    val layer = comp?.selected()?.firstOrNull()
+    val media = if (layer != null) comp?.lib?.firstOrNull { it.id == layer.mid } else null
+    var progress by remember(layer?.uid) { mutableIntStateOf(0) }
+    var status by remember(layer?.uid) { mutableStateOf(layer?.trackingStatus ?: "Select a video layer") }
+    val samples = layer?.trackSamples ?: emptyList()
+    Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("MOTION TRACKER", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(layer?.name ?: "No layer selected", color = Color.White, fontSize = 12.sp, maxLines = 1)
+        Text(
+            when {
+                layer == null -> "Select a video layer in the timeline."
+                media == null || media.kind != 1 -> "Select a video footage layer. Shape, image and audio layers cannot be tracked."
+                else -> "2D point tracking • grayscale patch matching"
+            },
+            color = DIM, fontSize = 10.sp
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Point X", color = DIM, fontSize = 10.sp)
+            Edt("%.3f".format(layer?.trackAnchorX ?: 0.5f), Modifier.width(54.dp), true) {
+                val v = it.toFloatOrNull()
+                if (v != null && layer != null) layer.trackAnchorX = v.coerceIn(0f, 1f)
+            }
+            Text("Y", color = DIM, fontSize = 10.sp)
+            Edt("%.3f".format(layer?.trackAnchorY ?: 0.5f), Modifier.width(54.dp), true) {
+                val v = it.toFloatOrNull()
+                if (v != null && layer != null) layer.trackAnchorY = v.coerceIn(0f, 1f)
+            }
+            FlatBtn("Center", c) {
+                if (layer != null) { layer.trackAnchorX = 0.5f; layer.trackAnchorY = 0.5f }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("Patch", color = DIM, fontSize = 10.sp)
+            FlatBtn("−", c) { if (layer != null) layer.trackPatchSize = (layer.trackPatchSize - 2).coerceAtLeast(7) }
+            Text("${layer?.trackPatchSize ?: 15}px", color = Color.White, fontSize = 10.sp)
+            FlatBtn("+", c) { if (layer != null) layer.trackPatchSize = (layer.trackPatchSize + 2).coerceAtMost(41) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlatBtn("Track", c, media != null && layer != null) {
+                if (layer != null && media != null && comp != null) {
+                    comp.mark()
+                    progress = 0
+                    status = "Preparing tracker"
+                    MotionTracker.start(media, layer, comp,
+                        { pct, msg -> progress = pct; status = msg; layer.trackingStatus = msg },
+                        { found, msg ->
+                            layer.trackSamples.clear()
+                            layer.trackSamples.addAll(found)
+                            layer.trackingStatus = msg
+                            progress = if (found.size >= 2) 100 else 0
+                            status = msg
+                            comp.mark()
+                        }
+                    )
+                }
+            }
+            FlatBtn("Cancel", c, status.contains("Tracking") || status == "Preparing") {
+                if (layer != null) {
+                    MotionTracker.cancel(layer)
+                    status = "Cancelled"
+                    layer.trackingStatus = status
+                }
+            }
+            FlatBtn("Clear", c, samples.isNotEmpty()) {
+                if (layer != null && comp != null) {
+                    comp.mark()
+                    layer.trackSamples.clear()
+                    layer.trackingStatus = "Not tracked"
+                    status = layer.trackingStatus
+                    progress = 0
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(5.dp).background(Color(0xFF353535), RoundedCornerShape(3.dp))) {
+            Box(Modifier.fillMaxWidth(progress / 100f).fillMaxHeight().background(AC, RoundedCornerShape(3.dp)))
+        }
+        Text(status, color = if (samples.isNotEmpty()) Color(0xFF72C58B) else DIM, fontSize = 10.sp)
+        Text("${samples.size} track samples", color = Color.White, fontSize = 10.sp)
+        FlatBtn("Apply Stabilization", c, samples.size >= 2 && layer != null && comp != null) {
+            if (layer != null && comp != null && samples.size >= 2) {
+                val first = samples.first()
+                comp.mark()
+                layer.trackSamples.forEach { sample ->
+                    val dx = sample.x - first.x
+                    val dy = sample.y - first.y
+                    val t = sample.time
+                    val x = layer.pr[PX].get(t) - dx * 2f
+                    val y = layer.pr[PY].get(t) + dy * 2f
+                    layer.pr[PX].put(Kf(t, x), comp.eps())
+                    layer.pr[PY].put(Kf(t, y), comp.eps())
+                }
+                comp.invalidateFrames()
+                layer.trackingStatus = "Stabilization keys applied"
+                status = layer.trackingStatus
+            }
+        }
+        Text("Tracking uses a fixed image patch and normalized cross-correlation. Stabilization writes inverse Position keyframes; it does not yet correct rotation, scale, rolling shutter, or perspective.", color = DIM, fontSize = 9.sp)
+    }
+}

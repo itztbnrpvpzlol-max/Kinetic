@@ -130,7 +130,7 @@ void main(){
 var FrameMs by mutableStateOf(0f)
 
 private const val BLIT_VS = "attribute vec2 p; varying vec2 uv; void main(){ uv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }"
-private const val BLIT_FS = "precision mediump float; varying vec2 uv; uniform sampler2D image; void main(){ gl_FragColor=texture2D(image,uv); }"
+private const val BLIT_FS = "precision mediump float; varying vec2 uv; uniform sampler2D image; uniform sampler2D history; uniform float trail; void main(){ vec4 now=texture2D(image,uv); vec4 old=texture2D(history,uv); gl_FragColor=mix(now,old,trail); }"
 
 class Frame(val d: FloatArray, val b: Array<Bitmap?>)
 
@@ -194,10 +194,16 @@ class Rnd : GLSurfaceView.Renderer {
     private var blitProgram = 0
     private var frameBuffer = 0
     private var frameTexture = 0
+    private data class GlTarget(val framebuffer: Int, val texture: Int)
+    private var historyTarget: GlTarget? = null
+    private var scratchTarget: GlTarget? = null
+    private var historyValid = false
     private var frameWidth = 0
     private var frameHeight = 0
     private var blitPosition = 0
     private var blitSampler = 0
+    private var historySampler = 0
+    private var trailUniform = 0
     private var offscreenReady = false
     private var W = 0
     private var H = 0
@@ -246,8 +252,11 @@ class Rnd : GLSurfaceView.Renderer {
         if (blitProgram != 0) {
             blitPosition = GLES20.glGetAttribLocation(blitProgram, "p")
             blitSampler = GLES20.glGetUniformLocation(blitProgram, "image")
+            historySampler = GLES20.glGetUniformLocation(blitProgram, "history")
+            trailUniform = GLES20.glGetUniformLocation(blitProgram, "trail")
             GLES20.glUseProgram(blitProgram)
             GLES20.glUniform1i(blitSampler, 0)
+            GLES20.glUniform1i(historySampler, 1)
         }
         if (pg != 0) {
             lp = GLES20.glGetAttribLocation(pg, "p")
@@ -278,10 +287,7 @@ class Rnd : GLSurfaceView.Renderer {
         H = h
     }
 
-    private fun ensureOffscreen(width: Int, height: Int): Boolean {
-        if (width <= 0 || height <= 0 || blitProgram == 0) return false
-        if (offscreenReady && frameWidth == width && frameHeight == height) return true
-        releaseOffscreen()
+    private fun createTarget(width: Int, height: Int): GlTarget? {
         val fb = IntArray(1)
         val tex = IntArray(1)
         GLES20.glGenFramebuffers(1, fb, 0)
@@ -289,7 +295,7 @@ class Rnd : GLSurfaceView.Renderer {
         if (fb[0] == 0 || tex[0] == 0) {
             if (fb[0] != 0) GLES20.glDeleteFramebuffers(1, fb, 0)
             if (tex[0] != 0) GLES20.glDeleteTextures(1, tex, 0)
-            return false
+            return null
         }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0])
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
@@ -305,39 +311,102 @@ class Rnd : GLSurfaceView.Renderer {
         if (!complete) {
             GLES20.glDeleteFramebuffers(1, fb, 0)
             GLES20.glDeleteTextures(1, tex, 0)
+            return null
+        }
+        return GlTarget(fb[0], tex[0])
+    }
+
+    private fun deleteTarget(target: GlTarget?) {
+        if (target == null) return
+        GLES20.glDeleteFramebuffers(1, intArrayOf(target.framebuffer), 0)
+        GLES20.glDeleteTextures(1, intArrayOf(target.texture), 0)
+    }
+
+    private fun ensureOffscreen(width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0 || blitProgram == 0) return false
+        if (offscreenReady && frameWidth == width && frameHeight == height) return true
+        releaseOffscreen()
+        val scene = createTarget(width, height) ?: return false
+        val history = createTarget(width, height)
+        val scratch = createTarget(width, height)
+        if (history == null || scratch == null) {
+            deleteTarget(scene)
+            deleteTarget(history)
+            deleteTarget(scratch)
             return false
         }
-        frameBuffer = fb[0]
-        frameTexture = tex[0]
+        frameBuffer = scene.framebuffer
+        frameTexture = scene.texture
+        historyTarget = history
+        scratchTarget = scratch
         frameWidth = width
         frameHeight = height
+        historyValid = false
         offscreenReady = true
         return true
     }
 
     private fun releaseOffscreen() {
-        if (frameBuffer != 0) GLES20.glDeleteFramebuffers(1, intArrayOf(frameBuffer), 0)
-        if (frameTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(frameTexture), 0)
+        deleteTarget(GlTarget(frameBuffer, frameTexture).takeIf { frameBuffer != 0 && frameTexture != 0 })
+        deleteTarget(historyTarget)
+        deleteTarget(scratchTarget)
+        historyTarget = null
+        scratchTarget = null
         frameBuffer = 0
         frameTexture = 0
         frameWidth = 0
         frameHeight = 0
+        historyValid = false
         offscreenReady = false
     }
 
-    private fun presentOffscreen(x: Int, y: Int, width: Int, height: Int) {
+    private fun postProcess(sourceTexture: Int, playing: Boolean): Int {
+        val history = historyTarget ?: return sourceTexture
+        val scratch = scratchTarget ?: return sourceTexture
+        val output = scratch
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, output.framebuffer)
+        GLES20.glViewport(0, 0, frameWidth, frameHeight)
+        GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glUseProgram(blitProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, sourceTexture)
+        GLES20.glUniform1i(blitSampler, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, history.texture)
+        GLES20.glUniform1i(historySampler, 1)
+        val trail = if (playing && historyValid) 0.22f else 0f
+        GLES20.glUniform1f(trailUniform, trail)
+        GLES20.glEnableVertexAttribArray(blitPosition)
+        GLES20.glVertexAttribPointer(blitPosition, 2, GLES20.GL_FLOAT, false, 8, vb)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glDisableVertexAttribArray(blitPosition)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        GLES20.glEnable(GLES20.GL_BLEND)
+        historyTarget = output
+        scratchTarget = history
+        historyValid = playing
+        return output.texture
+    }
+
+    private fun presentOffscreen(x: Int, y: Int, width: Int, height: Int, texture: Int) {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(x, y, width, height)
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glUseProgram(blitProgram)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTexture)
-        GLES20.glUniform1i(blitSampler, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        GLES20.glUniform1f(trailUniform, 0f)
         GLES20.glEnableVertexAttribArray(blitPosition)
         GLES20.glVertexAttribPointer(blitPosition, 2, GLES20.GL_FLOAT, false, 8, vb)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(blitPosition)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glEnable(GLES20.GL_BLEND)
     }
 
@@ -451,7 +520,8 @@ class Rnd : GLSurfaceView.Renderer {
                 GLES20.glEnable(GLES20.GL_BLEND)
                 items(fr)
             }
-            presentOffscreen(x, y, vw, vh)
+            val outputTexture = postProcess(frameTexture, live != null)
+            presentOffscreen(x, y, vw, vh, outputTexture)
         } else {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             GLES20.glViewport(x, y, vw, vh)

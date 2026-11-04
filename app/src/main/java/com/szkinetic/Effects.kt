@@ -4,6 +4,28 @@ data class EffectEntry(val name: String, val category: String, val description: 
 
 data class EffectCategory(val name: String, val effects: List<EffectEntry>)
 
+data class RenderEffect(val id: Int, val name: String, val category: String, val description: String)
+
+object RenderEffects {
+    // These effects are implemented in the live OpenGL renderer and can be applied to layers.
+    val all = listOf(
+        RenderEffect(1, "Brightness", "Color Correction", "Adjusts overall luminance."),
+        RenderEffect(2, "Contrast", "Color Correction", "Expands or compresses tonal contrast."),
+        RenderEffect(3, "Saturation", "Color Correction", "Controls color intensity."),
+        RenderEffect(4, "Invert", "Stylize", "Inverts the layer's RGB channels."),
+        RenderEffect(5, "Grayscale", "Color Correction", "Mixes the image toward monochrome."),
+        RenderEffect(6, "Sepia", "Stylize", "Applies a warm sepia treatment."),
+        RenderEffect(7, "Posterize", "Stylize", "Reduces the number of tonal steps."),
+        RenderEffect(8, "Vignette", "Stylize", "Darkens the edges of the layer."),
+        RenderEffect(9, "Threshold", "Stylize", "Converts luminance to black or white."),
+        RenderEffect(10, "Temperature", "Color Correction", "Shifts the image warmer or cooler."),
+        RenderEffect(11, "Warm Tint", "Color Correction", "Adds a warm color tint."),
+        RenderEffect(12, "Pixelate", "Stylize", "Creates a blocky pixel treatment.")
+    )
+    fun byName(name: String): RenderEffect? = all.firstOrNull { it.name.equals(name, true) }
+    fun byId(id: Int): RenderEffect? = all.firstOrNull { it.id == id }
+}
+
 object EffectCatalog {
     val categories: List<EffectCategory> = listOf(
         EffectCategory("Animation & Motion", listOf(

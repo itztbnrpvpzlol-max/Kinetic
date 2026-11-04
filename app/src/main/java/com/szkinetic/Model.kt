@@ -296,10 +296,12 @@ const val AX = 5
 const val AY = 6
 const val OP = 7
 const val PZ = 8
-const val NCH = 9
+const val RX = 9
+const val RY = 10
+const val NCH = 11
 
-val PN = arrayOf("Position X", "Position Y", "Scale X", "Rotation", "Scale Y", "Anchor X", "Anchor Y", "Opacity", "Position Z")
-val PDEF = floatArrayOf(0f, 0f, 1f, 0f, 1f, 0f, 0f, 1f, 0f)
+val PN = arrayOf("Position X", "Position Y", "Scale X", "Rotation", "Scale Y", "Anchor X", "Anchor Y", "Opacity", "Position Z", "Rotation X", "Rotation Y")
+val PDEF = floatArrayOf(0f, 0f, 1f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 0f)
 val COLS = longArrayOf(0xFF4A90E2, 0xFFE2574A, 0xFF4AE27B, 0xFFE2C84A)
 val MCOL = longArrayOf(0xFF7FB2D9, 0xFF9C8FDB, 0xFF6DBF8B)
 val KN = arrayOf("Image", "Video", "Audio")
@@ -1201,21 +1203,34 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         var ty = position.second
         var sx = l.gv(SX, t)
         var sy = l.gv(SY, t)
-        if (l.is3d) {
-            val dd = 1f + l.gv(PZ, t)
-            if (dd < 0.05f) return null
-            val k = 1f / dd
-            tx *= k
-            ty *= k
-            sx *= k
-            sy *= k
-        }
         val r = Math.toRadians(l.gv(RT, t).toDouble())
         val cs = cos(r).toFloat()
         val sn = sin(r).toFloat()
+        val rx = Math.toRadians(l.gv(RX, t).toDouble())
+        val ry = Math.toRadians(l.gv(RY, t).toDouble())
+        var a = sx
+        var b = 0f
+        var c = 0f
+        var d = sy
+        if (l.is3d) {
+            // Orthographic projection of an Euler-rotated layer plane with depth perspective.
+            val depth = 1f + l.gv(PZ, t)
+            if (depth <= 0.05f) return null
+            val persp = 1f / depth
+            val cx = cos(rx).toFloat()
+            val sxr = sin(rx).toFloat()
+            val cy = cos(ry).toFloat()
+            val syr = sin(ry).toFloat()
+            a = sx * cy * persp
+            b = sx * sxr * syr * persp
+            c = -sy * sxr * syr * persp
+            d = sy * cx * persp
+            tx *= persp
+            ty *= persp
+        }
         val loc = Aff(1f, 0f, 0f, 1f, tx, ty)
             .mul(Aff(cs, sn, -sn, cs, 0f, 0f))
-            .mul(Aff(sx, 0f, 0f, sy, 0f, 0f))
+            .mul(Aff(a, b, c, d, 0f, 0f))
             .mul(Aff(1f, 0f, 0f, 1f, -l.gv(AX, t), -l.gv(AY, t)))
         val m = if (pw != null) pw.mul(loc) else loc
         memo[l] = m

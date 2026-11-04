@@ -645,21 +645,30 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         val targets = selected().filter { it.role != 1 && it.role != 2 }
         if (targets.isEmpty()) return
         mark()
-        targets.forEach { it.effectId = effectId; it.effectAmount = 0.5f }
+        targets.forEach { it.addEffect(effectId, 0.5f) }
     }
 
     fun adjustEffectAmount(delta: Float) {
         val targets = selected().filter { it.effectId != 0 }
         if (targets.isEmpty()) return
         mark()
-        targets.forEach { it.effectAmount = (it.effectAmount + delta).coerceIn(0f, 1f) }
+        targets.forEach { layer ->
+            if (layer.effects.isEmpty() && layer.effectId in 1..16) layer.effects.add(LayerEffect(layer.effectId, layer.effectAmount))
+            val last = layer.effects.lastOrNull()
+            if (last != null) {
+                val updated = last.copy(amount = (last.amount + delta).coerceIn(0f, 1f))
+                layer.effects[layer.effects.lastIndex] = updated
+                layer.effectId = updated.id
+                layer.effectAmount = updated.amount
+            }
+        }
     }
 
     fun clearEffect() {
         val targets = selected().filter { it.effectId != 0 }
         if (targets.isEmpty()) return
         mark()
-        targets.forEach { it.effectId = 0 }
+        targets.forEach { it.effects.clear(); it.effectId = 0; it.effectAmount = 0.5f }
     }
 
     fun addPenPath(points: List<PathPoint>, color: Long = 0xFF4A90E2, closed: Boolean = true) {

@@ -634,10 +634,7 @@ private fun SpatialPathEditor(comp: Comp, layer: Layer, c: Cur, modifier: Modifi
             )
         }
     ) {
-        if (points.size < 2) {
-            drawContext.canvas.nativeCanvas.let { }
-            return@Canvas
-        }
+        if (points.size < 2) return@Canvas
         fun screen(x: Float, y: Float): Offset {
             val pad = 28f
             return Offset(

@@ -890,7 +890,15 @@ fun GraphView(
                             }
                             val p = g.p
                             val f0 = p.k[st.i]
-                            val f = if (f0.ip == 1) f0 else f0.copy(ip = 1)
+                            val prevSlope = if (st.i > 0) {
+                                val prev = p.k[st.i - 1]
+                                (f0.v - prev.v) / (f0.t - prev.t).coerceAtLeast(0.001f)
+                            } else 0f
+                            val nextSlope = if (st.i + 1 < p.k.size) {
+                                val next = p.k[st.i + 1]
+                                (next.v - f0.v) / (next.t - f0.t).coerceAtLeast(0.001f)
+                            } else prevSlope
+                            val f = if (f0.ip == 1) f0 else f0.copy(ip = 1, isp = prevSlope, osp = nextSlope)
                             val hv = g.fromD(vAt(o.y))
                             if (st.side == 1 && st.i + 1 < p.k.size) {
                                 val dtn = p.k[st.i + 1].t - f.t

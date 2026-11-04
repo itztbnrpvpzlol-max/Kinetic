@@ -129,6 +129,9 @@ void main(){
 
 var FrameMs by mutableStateOf(0f)
 
+private const val BLIT_VS = "attribute vec2 p; varying vec2 uv; void main(){ uv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }"
+private const val BLIT_FS = "precision mediump float; varying vec2 uv; uniform sampler2D image; void main(){ gl_FragColor=texture2D(image,vec2(uv.x,1.0-uv.y)); }"
+
 class Frame(val d: FloatArray, val b: Array<Bitmap?>)
 
 fun sh(t: Int, s: String): Int {
@@ -187,6 +190,15 @@ class Rnd : GLSurfaceView.Renderer {
     @Volatile var live: Comp? = null
     private var fc = 0
     private var pg = 0
+    // Offscreen composition target; later post effects can chain from this texture.
+    private var blitProgram = 0
+    private var frameBuffer = 0
+    private var frameTexture = 0
+    private var frameWidth = 0
+    private var frameHeight = 0
+    private var blitPosition = 0
+    private var blitSampler = 0
+    private var offscreenReady = false
     private var W = 0
     private var H = 0
     // LRU cache is owned by the GL thread; keep decoded bitmap textures warm between frames.
@@ -220,11 +232,23 @@ class Rnd : GLSurfaceView.Renderer {
 
     override fun onSurfaceCreated(g: GL10?, c: EGLConfig?) {
         pg = prog()
+        blitProgram = prog(BLIT_VS, BLIT_FS)
+        frameBuffer = 0
+        frameTexture = 0
+        frameWidth = 0
+        frameHeight = 0
+        offscreenReady = false
         tx = LinkedHashMap(32, 0.75f, true)
         textureBytes = 0L
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glDisable(GLES20.GL_DITHER)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        if (blitProgram != 0) {
+            blitPosition = GLES20.glGetAttribLocation(blitProgram, "p")
+            blitSampler = GLES20.glGetUniformLocation(blitProgram, "image")
+            GLES20.glUseProgram(blitProgram)
+            GLES20.glUniform1i(blitSampler, 0)
+        }
         if (pg != 0) {
             lp = GLES20.glGetAttribLocation(pg, "p")
             uE = GLES20.glGetUniformLocation(pg, "e")
@@ -252,6 +276,69 @@ class Rnd : GLSurfaceView.Renderer {
     override fun onSurfaceChanged(g: GL10?, w: Int, h: Int) {
         W = w
         H = h
+    }
+
+    private fun ensureOffscreen(width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0 || blitProgram == 0) return false
+        if (offscreenReady && frameWidth == width && frameHeight == height) return true
+        releaseOffscreen()
+        val fb = IntArray(1)
+        val tex = IntArray(1)
+        GLES20.glGenFramebuffers(1, fb, 0)
+        GLES20.glGenTextures(1, tex, 0)
+        if (fb[0] == 0 || tex[0] == 0) {
+            if (fb[0] != 0) GLES20.glDeleteFramebuffers(1, fb, 0)
+            if (tex[0] != 0) GLES20.glDeleteTextures(1, tex, 0)
+            return false
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0])
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fb[0])
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, tex[0], 0)
+        val complete = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        if (!complete) {
+            GLES20.glDeleteFramebuffers(1, fb, 0)
+            GLES20.glDeleteTextures(1, tex, 0)
+            return false
+        }
+        frameBuffer = fb[0]
+        frameTexture = tex[0]
+        frameWidth = width
+        frameHeight = height
+        offscreenReady = true
+        return true
+    }
+
+    private fun releaseOffscreen() {
+        if (frameBuffer != 0) GLES20.glDeleteFramebuffers(1, intArrayOf(frameBuffer), 0)
+        if (frameTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(frameTexture), 0)
+        frameBuffer = 0
+        frameTexture = 0
+        frameWidth = 0
+        frameHeight = 0
+        offscreenReady = false
+    }
+
+    private fun presentOffscreen(x: Int, y: Int, width: Int, height: Int) {
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glViewport(x, y, width, height)
+        GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glUseProgram(blitProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTexture)
+        GLES20.glUniform1i(blitSampler, 0)
+        GLES20.glEnableVertexAttribArray(blitPosition)
+        GLES20.glVertexAttribPointer(blitPosition, 2, GLES20.GL_FLOAT, false, 8, vb)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glDisableVertexAttribArray(blitPosition)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+        GLES20.glEnable(GLES20.GL_BLEND)
     }
 
     private fun bindVb(loc: Int) {
@@ -354,7 +441,19 @@ class Rnd : GLSurfaceView.Renderer {
         if (ex <= sx || ey <= sy) return
         val fr = f
         val n = fr.d.size / STR
-        run {
+        if (ensureOffscreen(vw, vh)) {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
+            GLES20.glViewport(0, 0, frameWidth, frameHeight)
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
+            GLES20.glClearColor(0f, 0f, 0f, 1f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            if (n > 0) {
+                GLES20.glEnable(GLES20.GL_BLEND)
+                items(fr)
+            }
+            presentOffscreen(x, y, vw, vh)
+        } else {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             GLES20.glViewport(x, y, vw, vh)
             GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
             GLES20.glScissor(sx, sy, ex - sx, ey - sy)
@@ -364,8 +463,8 @@ class Rnd : GLSurfaceView.Renderer {
                 GLES20.glEnable(GLES20.GL_BLEND)
                 items(fr)
             }
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
         }
-        GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
         // Evict least-recently-used textures only when the count or memory budget is exceeded.
         if (tx.size > maxTextureCount || textureBytes > maxTextureBytes) {
             val ei = tx.entries.iterator()

@@ -60,7 +60,7 @@ object MotionTracker {
                         val total = (duration / step).toInt() + 1
                         while (t <= duration + 0.0001f && !Thread.currentThread().isInterrupted) {
                             val sourceTime = max(layer.off + t, 0f)
-                            val raw = retriever.getFrameAtTime((sourceTime * 1_000_000L), MediaMetadataRetriever.OPTION_CLOSEST)
+                            val raw = retriever.getFrameAtTime((sourceTime * 1_000_000f).toLong(), MediaMetadataRetriever.OPTION_CLOSEST)
                             if (raw == null) break
                             val bitmap = scaleFrame(raw, 360)
                             if (bitmap !== raw) raw.recycle()

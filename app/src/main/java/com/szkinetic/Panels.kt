@@ -620,6 +620,31 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
         }
     }
 
+    fun setAnimated(prop: Prop, value: Float) {
+        if (scene == null || !value.isFinite()) return
+        scene.mark()
+        if (prop.k.isEmpty()) prop.sv = value
+        else {
+            val at = scene.time
+            val index = prop.k.indexOfLast { kotlin.math.abs(it.t - at) <= scene.eps() }
+            if (index >= 0) prop.k[index] = prop.k[index].copy(v = value)
+            else prop.k.add(Kf(at, value))
+            prop.k.sortBy { it.t }
+        }
+        scene.invalidateFrames()
+    }
+    fun addLightKey(prop: Prop) {
+        if (scene == null) return
+        scene.mark()
+        val at = scene.time
+        val value = prop.get(at)
+        val index = prop.k.indexOfLast { kotlin.math.abs(it.t - at) <= scene.eps() }
+        if (index >= 0) prop.k[index] = prop.k[index].copy(v = value)
+        else prop.k.add(Kf(at, value))
+        prop.k.sortBy { it.t }
+        scene.invalidateFrames()
+    }
+
     Column(m.background(PB).padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text("3D LIGHTING", color = DIM, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (scene == null) {
@@ -665,40 +690,46 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                     Text("${if (selected.type == 0) "DIRECTIONAL" else "POINT"} LIGHT • ${selected.name}", color = TXT, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text("Intensity", color = DIM, fontSize = 9.sp)
+                        FlatBtn("Key", c) { selected?.let { addLightKey(it.intensityAnim) } }
                         Edt(powerText, Modifier.width(64.dp), true) { v ->
                             powerText = v
-                            v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(intensity = value.coerceIn(0f, 1.5f)) } }
+                            v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(intensity = value.coerceIn(0f, 1.5f)).also { light -> setAnimated(light.intensityAnim, value.coerceIn(0f, 1.5f)) } } }
                         }
                     }
                     if (selected.type == 0) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Azimuth °", color = DIM, fontSize = 9.sp)
+                            FlatBtn("Key", c) { selected?.let { addLightKey(it.azimuthAnim) } }
                             Edt(azText, Modifier.width(64.dp), true) { v ->
                                 azText = v
-                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(azimuth = value.coerceIn(-180f, 180f)) } }
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(azimuth = value.coerceIn(-180f, 180f)).also { light -> setAnimated(light.azimuthAnim, value.coerceIn(-180f, 180f)) } } }
                             }
                             Text("Elevation °", color = DIM, fontSize = 9.sp)
+                            FlatBtn("Key", c) { selected?.let { addLightKey(it.elevationAnim) } }
                             Edt(elText, Modifier.width(64.dp), true) { v ->
                                 elText = v
-                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(elevation = value.coerceIn(-89f, 89f)) } }
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(elevation = value.coerceIn(-89f, 89f)).also { light -> setAnimated(light.elevationAnim, value.coerceIn(-89f, 89f)) } } }
                             }
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("X", color = DIM, fontSize = 9.sp)
+                            FlatBtn("Key", c) { selected?.let { addLightKey(it.xAnim) } }
                             Edt(xText, Modifier.width(58.dp), true) { v ->
                                 xText = v
-                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(x = value.coerceIn(-10f, 10f)) } }
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(x = value.coerceIn(-10f, 10f)).also { light -> setAnimated(light.xAnim, value.coerceIn(-10f, 10f)) } } }
                             }
                             Text("Y", color = DIM, fontSize = 9.sp)
+                            FlatBtn("Key", c) { selected?.let { addLightKey(it.yAnim) } }
                             Edt(yText, Modifier.width(58.dp), true) { v ->
                                 yText = v
-                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(y = value.coerceIn(-10f, 10f)) } }
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(y = value.coerceIn(-10f, 10f)).also { light -> setAnimated(light.yAnim, value.coerceIn(-10f, 10f)) } } }
                             }
                             Text("Z", color = DIM, fontSize = 9.sp)
+                            FlatBtn("Key", c) { selected?.let { addLightKey(it.zAnim) } }
                             Edt(zText, Modifier.width(58.dp), true) { v ->
                                 zText = v
-                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(z = value.coerceIn(-10f, 10f)) } }
+                                v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { value -> updateLight { it.copy(z = value.coerceIn(-10f, 10f)).also { light -> setAnimated(light.zAnim, value.coerceIn(-10f, 10f)) } } }
                             }
                         }
                     }
@@ -731,7 +762,7 @@ fun LightingPanel(comp: Comp?, c: Cur, m: Modifier) {
                     v.toFloatOrNull()?.takeIf { it.isFinite() }?.let { scene.mark(); scene.shadowOffsetY = it.coerceIn(-1f, 1f); scene.invalidateFrames() }
                 }
             }
-            Text("Point lights use distance-attenuated diffuse shading evaluated at each layer center. Directional lights use the layer's rotated normal. This is still a 2.5D renderer: no specular response, physical light falloff, occlusion or per-light shadow maps.", color = DIM, fontSize = 9.sp)
+            Text("Use the Key buttons to set keyframes at the current playhead time. Position, intensity and directional angles interpolate using standard keyframe curves. Point lights use distance-attenuated diffuse shading at each layer center; this remains a 2.5D renderer without specular response, occlusion or per-light shadow maps.", color = DIM, fontSize = 9.sp)
         }
     }
 }

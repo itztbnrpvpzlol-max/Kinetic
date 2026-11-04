@@ -841,6 +841,10 @@ fun GraphView(
             Modifier.fillMaxWidth().height(24.dp).background(CH).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            FlatBtn("Spatial", c, comp.selected().any { it.spatial }) {
+                comp.mark()
+                comp.selected().forEach { it.spatial = !it.spatial }
+            }
             FlatBtn("Remap", c, comp.selected().any { it.timeRemapEnabled }) {
                 comp.mark()
                 comp.selected().forEach { layer ->

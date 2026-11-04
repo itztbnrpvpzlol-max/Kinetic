@@ -30,7 +30,22 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var cid by remember { mutableStateOf(p.comps.firstOrNull()?.id ?: "") }
+    var navStack by remember { mutableStateOf(emptyList<String>()) }
     val comp: Comp? = p.comps.firstOrNull { it.id == cid } ?: p.comps.firstOrNull()
+    val openNested: (String) -> Unit = { target ->
+        if (p.comps.any { it.id == target }) {
+            if (cid.isNotEmpty() && cid != target) navStack = navStack + cid
+            cid = target
+        }
+    }
+    p.comps.forEach { it.onOpenComp = openNested }
+    val backToParent = {
+        val prev = navStack.lastOrNull()
+        if (prev != null) {
+            navStack = navStack.dropLast(1)
+            cid = prev
+        }
+    }
     var root by remember { mutableStateOf(LayoutStore.loadCurrent(ctx) ?: defaultTree()) }
     val rootS = rememberUpdatedState(root)
     val dock = remember { DockCtx(c, { rootS.value }, { root = it }) }
@@ -166,9 +181,9 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
     }
     val content: @Composable (String, Modifier) -> Unit = { id, mod ->
         when (id) {
-            "proj" -> ProjPanel(p, comp, c, psel, { psel = it }, { cid = it }, { showNew = true }, false, {}, { doImp() }, mod)
+            "proj" -> ProjPanel(p, comp, c, psel, { psel = it }, { openNested(it) }, { showNew = true }, false, {}, { doImp() }, mod)
             "comp" -> if (comp != null) {
-                CompPanel(p, comp, c, tool, res, { res = it }, false, {}, { cid = it }, mod)
+                CompPanel(p, comp, c, tool, res, { res = it }, false, {}, { openNested(it) }, mod)
             } else {
                 EmptyComp(c, false, {}, { showNew = true }, mod)
             }
@@ -241,7 +256,19 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
                     "Composition", c,
                     "New composition..." to { showNew = true },
                     "New shape layer" to { comp?.add(); Unit },
-                    "New null object" to { comp?.addNull(); Unit }
+                    "New null object" to { comp?.addNull(); Unit },
+                    "Pre-compose selected layers" to {
+                        val nm = "Pre-comp ${p.comps.size + 1}"
+                        val ok = comp?.precomposeSelected(nm) == true
+                        if (ok) {
+                            psel = p.comps.lastOrNull()?.id ?: ""
+                            scope.launch { Store.saveA(ctx, p) }
+                            note("Created $nm")
+                        } else {
+                            note("Cannot pre-compose: check the selected layers and their parenting")
+                        }
+                    },
+                    "Back to Parent" to { backToParent() }
                 )
                 Mn(
                     "Layer", c,
@@ -315,6 +342,7 @@ fun Editor(p: Project, c: Cur, onBack: () -> Unit, onSet: () -> Unit) {
             p.mark()
             p.addComp(cm)
             cid = cm.id
+            navStack = emptyList()
             psel = cm.id
             scope.launch { Store.saveA(ctx, p) }
         }

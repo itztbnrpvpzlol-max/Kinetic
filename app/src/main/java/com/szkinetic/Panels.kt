@@ -475,7 +475,7 @@ fun InfoPanel(comp: Comp?, c: Cur, m: Modifier) {
 
 // ---------------------------------------------------------------- Effects & Presets browser
 @Composable
-fun EffectsBrowserPanel(c: Cur, m: Modifier) {
+fun EffectsBrowserPanel(comp: Comp?, c: Cur, m: Modifier) {
     var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf("Blur & Sharpen") }
     val q = query.trim()
@@ -518,6 +518,28 @@ fun EffectsBrowserPanel(c: Cur, m: Modifier) {
             Spacer(Modifier.weight(1f))
             Text("${EffectCatalog.all.size} effects  •  ${EffectCatalog.categories.size} categories", color = VB, fontSize = 9.sp)
         }
+        val target = comp?.selected()?.firstOrNull()
+        val active = target?.let { RenderEffects.byId(it.effectId) }
+        Column(
+            Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(7.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(if (target == null) "NO LAYER SELECTED" else "SELECTED: ${target.name}", color = DIM, fontSize = 9.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(active?.name ?: "No effect applied", color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                if (active != null && comp != null) {
+                    FlatBtn("−", c) { comp.adjustEffectAmount(-0.05f) }
+                    Text("${(target!!.effectAmount * 100f).toInt()}%", color = VB, fontSize = 9.sp)
+                    FlatBtn("+", c) { comp.adjustEffectAmount(0.05f) }
+                    FlatBtn("Remove", c) { comp.clearEffect() }
+                }
+            }
+            Text(
+                if (target == null) "Select a layer in the timeline to apply an effect."
+                else "Tap a supported effect below to apply it to the selected layer(s).",
+                color = DIM, fontSize = 8.sp
+            )
+        }
         Column(Modifier.weight(1f).fillMaxWidth().then(Modifier.vscr(c, rememberScrollState()))) {
             if (visibleCategories.isEmpty()) {
                 Text("No matching effects", color = DIM, fontSize = 11.sp, modifier = Modifier.padding(vertical = 12.dp))
@@ -539,16 +561,18 @@ fun EffectsBrowserPanel(c: Cur, m: Modifier) {
                     }
                     if (isExpanded) {
                         matches.forEach { effect ->
+                            val renderEffect = RenderEffects.byName(effect.name)
                             Row(
                                 Modifier.fillMaxWidth().height(27.dp)
-                                    .background(Color(0xFF202020))
+                                    .background(if (renderEffect != null && comp != null) Color(0xFF202020) else Color(0xFF191919))
+                                    .cur(c) { if (renderEffect != null) comp?.applyEffect(renderEffect.id) }
                                     .padding(start = 25.dp, end = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(Modifier.size(5.dp).background(AC, RoundedCornerShape(1.dp)))
+                                Box(Modifier.size(5.dp).background(if (renderEffect != null) AC else Color(0xFF555555), RoundedCornerShape(1.dp)))
                                 Spacer(Modifier.width(8.dp))
-                                Text(effect.name, color = TXT, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                                Text("FX", color = DIM, fontSize = 8.sp)
+                                Text(effect.name, color = if (renderEffect != null) TXT else DIM, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                Text(if (renderEffect != null) "APPLY" else "CATALOG", color = if (renderEffect != null) VB else DIM, fontSize = 7.sp)
                             }
                         }
                     }
@@ -557,7 +581,7 @@ fun EffectsBrowserPanel(c: Cur, m: Modifier) {
         }
         Box(Modifier.fillMaxWidth().background(Color(0xFF202020), RoundedCornerShape(3.dp)).padding(8.dp)) {
             Text(
-                "500 searchable effect entries are now catalogued. This is the browser catalogue; effect rendering and editable parameter controls still need to be implemented per effect.",
+                "12 effects have live GPU rendering and adjustable strength. Other catalogue entries are listed for discovery and are not yet implemented.",
                 color = DIM,
                 fontSize = 9.sp
             )

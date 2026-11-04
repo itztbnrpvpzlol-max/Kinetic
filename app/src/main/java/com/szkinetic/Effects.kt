@@ -20,7 +20,11 @@ object RenderEffects {
         RenderEffect(9, "Threshold", "Stylize", "Converts luminance to black or white."),
         RenderEffect(10, "Temperature", "Color Correction", "Shifts the image warmer or cooler."),
         RenderEffect(11, "Warm Tint", "Color Correction", "Adds a warm color tint."),
-        RenderEffect(12, "Pixelate", "Stylize", "Creates a blocky pixel treatment.")
+        RenderEffect(12, "Pixelate", "Stylize", "Creates a blocky pixel treatment."),
+        RenderEffect(13, "Hue Shift", "Color Correction", "Rotates the hue while preserving image luminance."),
+        RenderEffect(14, "Colorize", "Color Correction", "Blends the layer toward a selected warm color treatment."),
+        RenderEffect(15, "Scanlines", "Stylize", "Adds subtle animated display scanlines."),
+        RenderEffect(16, "Chromatic Aberration", "Distortion & Warp", "Separates red and blue channels for a lens-fringe effect.")
     )
     fun byName(name: String): RenderEffect? = all.firstOrNull { it.name.equals(name, true) }
     fun byId(id: Int): RenderEffect? = all.firstOrNull { it.id == id }

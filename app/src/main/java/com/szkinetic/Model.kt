@@ -659,6 +659,11 @@ class Comp(n: String, val w: Int, val h: Int, val fps: Int, val dur: Float) {
         proj?.mark()
     }
 
+    fun invalidateFrames() {
+        renderRevision++
+        pausedFrames.clear()
+    }
+
     fun eps(): Float = 0.5f / fps
 
     // ---- display units (what the user sees/edits) vs stored units ----

@@ -13,7 +13,11 @@ import kotlinx.coroutines.withContext
 
 class Settings(c: Context) {
     private val sp = c.getSharedPreferences("kinetic", Context.MODE_PRIVATE)
-    var cursor by mutableStateOf(sp.getBoolean("cursor", true))
+    private val initialCursor = if (!sp.getBoolean("touch_input_migrated", false)) {
+        sp.edit().putBoolean("cursor", false).putBoolean("touch_input_migrated", true).apply()
+        false
+    } else sp.getBoolean("cursor", false)
+    var cursor by mutableStateOf(initialCursor)
     var vol by mutableStateOf(sp.getBoolean("vol", true))
     var up by mutableStateOf(sp.getInt("up", 0))
     var down by mutableStateOf(sp.getInt("down", 1))

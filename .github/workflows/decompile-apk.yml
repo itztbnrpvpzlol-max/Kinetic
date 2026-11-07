@@ -65,6 +65,10 @@ jobs:
               fi
               apk_path="${apks[0]}"
               ;;
+            *.apk.gz|*.APK.GZ)
+              apk_path="extracted/$(basename "${input_path%.gz}")"
+              gzip -dc "$input_path" > "$apk_path"
+              ;;
             *.apk|*.APK)
               apk_path="$input_path"
               ;;
